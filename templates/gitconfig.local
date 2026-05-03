@@ -1,0 +1,28 @@
+# ─────────────────────────────────────────────
+# Machine-specific git overrides
+# Copy to ~/.gitconfig.local and customize.
+# ~/.gitconfig.local is gitignored — never commit it.
+# ─────────────────────────────────────────────
+
+[user]
+	name =
+	email =
+
+# Optional: enable signed commits on machines with a configured GPG key.
+# [user]
+# 	signingkey =
+# [commit]
+# 	gpgsign = true
+# [gpg]
+# 	program = gpg
+
+# [http]
+# 	proxy = http://127.0.0.1:7890
+# [https]
+# 	proxy = http://127.0.0.1:7890
+
+# [core]
+# 	# macOS: use VS Code
+# 	editor = code --wait
+# 	# Linux: use nvim
+# 	# editor = nvim

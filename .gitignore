@@ -1,0 +1,21 @@
+# Secrets and local overrides
+zsh/.zshrc.secrets
+zsh/.zshrc.local
+git/.gitconfig.local
+.zshrc.secrets
+.zshrc.local
+.gitconfig.local
+*.local
+*.secret
+*.secrets
+!templates/*.local
+!templates/*.secret
+!templates/*.secrets
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# macOS
+.DS_Store
+**/.DS_Store
