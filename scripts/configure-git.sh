@@ -11,7 +11,7 @@ warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 step() { echo -e "${CYAN}[STEP]${NC} $*"; }
 
 tty_available() {
-    [[ -r /dev/tty && -w /dev/tty ]]
+    [[ -t 0 || -r /dev/tty ]]
 }
 
 marker_begin() {

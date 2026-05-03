@@ -11,7 +11,25 @@ warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 step() { echo -e "${CYAN}[STEP]${NC} $*"; }
 
 tty_available() {
-    [[ -r /dev/tty && -w /dev/tty ]]
+    [[ -t 0 || -r /dev/tty ]]
+}
+
+read_key() {
+    local __var="$1"
+    if [[ -t 0 ]]; then
+        IFS= read -rsn1 "$__var"
+    else
+        IFS= read -rsn1 "$__var" </dev/tty
+    fi
+}
+
+read_key_rest() {
+    local __var="$1"
+    if [[ -t 0 ]]; then
+        IFS= read -rsn2 "$__var"
+    else
+        IFS= read -rsn2 "$__var" </dev/tty
+    fi
 }
 
 enabled() {
@@ -28,6 +46,10 @@ mark() {
     fi
 }
 
+set_enabled() {
+    eval "$1=$2"
+}
+
 toggle() {
     local name="$1"
     local value
@@ -39,82 +61,101 @@ toggle() {
     fi
 }
 
-select_all() {
-    INSTALL_PACKAGES=1
-    INSTALL_ZSH_STACK=1
-    INSTALL_TMUX_STACK=1
-    STOW_ZSH=1
-    STOW_TMUX=1
-    STOW_GIT=1
-    STOW_NVIM=1
-    COPY_TEMPLATES=1
-    CONFIGURE_GIT=1
-    CHANGE_SHELL=1
-    INSTALL_TMUX_PLUGINS=1
+checkbox_set_all() {
+    local value="$1"
+    local var
+
+    for var in "${CHECKBOX_VARS[@]}"; do
+        set_enabled "$var" "$value"
+    done
 }
 
-select_none() {
-    INSTALL_PACKAGES=0
-    INSTALL_ZSH_STACK=0
-    INSTALL_TMUX_STACK=0
-    STOW_ZSH=0
-    STOW_TMUX=0
-    STOW_GIT=0
-    STOW_NVIM=0
-    COPY_TEMPLATES=0
-    CONFIGURE_GIT=0
-    CHANGE_SHELL=0
-    INSTALL_TMUX_PLUGINS=0
+render_checkbox_menu() {
+    local title="$1"
+    local cursor="$2"
+    local i var prefix marker
+
+    printf '\033[H\033[2J'
+    printf '%s\n\n' "$title"
+    printf 'Use Up/Down to move, Space to toggle, Enter to continue.\n'
+    printf 'Shortcuts: a = all, n = none, q = cancel.\n\n'
+
+    for i in "${!CHECKBOX_VARS[@]}"; do
+        var="${CHECKBOX_VARS[$i]}"
+        if [[ "$i" -eq "$cursor" ]]; then
+            prefix=">"
+        else
+            prefix=" "
+        fi
+        marker="$(mark "$var")"
+        printf ' %s %s %s\n' "$prefix" "$marker" "${CHECKBOX_LABELS[$i]}"
+    done
 }
 
-show_feature_menu() {
-    echo ""
-    echo "Select setup steps. Type numbers to toggle, then press Enter to continue."
-    echo "Use comma or spaces between numbers. 'a' selects all, 'n' selects none."
-    echo ""
-    printf "  1) %s Install system packages\n" "$(mark INSTALL_PACKAGES)"
-    printf "  2) %s Install oh-my-zsh, powerlevel10k, zsh plugins\n" "$(mark INSTALL_ZSH_STACK)"
-    printf "  3) %s Install tmux plugin manager\n" "$(mark INSTALL_TMUX_STACK)"
-    printf "  4) %s Stow zsh config\n" "$(mark STOW_ZSH)"
-    printf "  5) %s Stow tmux config\n" "$(mark STOW_TMUX)"
-    printf "  6) %s Stow shared git config\n" "$(mark STOW_GIT)"
-    printf "  7) %s Stow nvim config\n" "$(mark STOW_NVIM)"
-    printf "  8) %s Create local template files\n" "$(mark COPY_TEMPLATES)"
-    printf "  9) %s Configure personal Git/GPG/GitHub auth\n" "$(mark CONFIGURE_GIT)"
-    printf " 10) %s Set default shell to zsh\n" "$(mark CHANGE_SHELL)"
-    printf " 11) %s Install tmux plugins\n" "$(mark INSTALL_TMUX_PLUGINS)"
-    echo ""
-}
-
-prompt_feature_selection() {
-    local input item
+prompt_checkbox_menu() {
+    local title="$1"
+    local cursor=0
+    local count key rest current
 
     while true; do
-        show_feature_menu
-        read -r -p "Toggle choices, or press Enter to continue: " input </dev/tty
-        [[ -z "$input" ]] && break
+        count="${#CHECKBOX_VARS[@]}"
+        render_checkbox_menu "$title" "$cursor"
 
-        input="${input//,/ }"
-        for item in $input; do
-            case "$item" in
-                1) toggle INSTALL_PACKAGES ;;
-                2) toggle INSTALL_ZSH_STACK ;;
-                3) toggle INSTALL_TMUX_STACK ;;
-                4) toggle STOW_ZSH ;;
-                5) toggle STOW_TMUX ;;
-                6) toggle STOW_GIT ;;
-                7) toggle STOW_NVIM ;;
-                8) toggle COPY_TEMPLATES ;;
-                9) toggle CONFIGURE_GIT ;;
-                10) toggle CHANGE_SHELL ;;
-                11) toggle INSTALL_TMUX_PLUGINS ;;
-                a|A) select_all ;;
-                n|N) select_none ;;
-                *)
-                    warn "Unknown choice: $item"
-                    ;;
-            esac
-        done
+        read_key key || break
+        case "$key" in
+            "")
+                printf '\n'
+                break
+                ;;
+            " ")
+                current="${CHECKBOX_VARS[$cursor]}"
+                toggle "$current"
+                ;;
+            a|A)
+                checkbox_set_all 1
+                ;;
+            n|N)
+                checkbox_set_all 0
+                ;;
+            q|Q)
+                CHECKBOX_CANCELLED=1
+                printf '\n'
+                break
+                ;;
+            $'\033')
+                read_key_rest rest || true
+                case "$rest" in
+                    "[A")
+                        if [[ "$cursor" -gt 0 ]]; then
+                            cursor=$((cursor - 1))
+                        else
+                            cursor=$((count - 1))
+                        fi
+                        ;;
+                    "[B")
+                        if [[ "$cursor" -lt $((count - 1)) ]]; then
+                            cursor=$((cursor + 1))
+                        else
+                            cursor=0
+                        fi
+                        ;;
+                esac
+                ;;
+            k|K)
+                if [[ "$cursor" -gt 0 ]]; then
+                    cursor=$((cursor - 1))
+                else
+                    cursor=$((count - 1))
+                fi
+                ;;
+            j|J)
+                if [[ "$cursor" -lt $((count - 1)) ]]; then
+                    cursor=$((cursor + 1))
+                else
+                    cursor=0
+                fi
+                ;;
+        esac
     done
 }
 
@@ -386,7 +427,38 @@ if [[ "$OS_TYPE" == "linux" ]]; then
 fi
 
 if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
-    prompt_feature_selection
+    CHECKBOX_VARS=(
+        INSTALL_PACKAGES
+        INSTALL_ZSH_STACK
+        INSTALL_TMUX_STACK
+        STOW_ZSH
+        STOW_TMUX
+        STOW_GIT
+        STOW_NVIM
+        COPY_TEMPLATES
+        CONFIGURE_GIT
+        CHANGE_SHELL
+        INSTALL_TMUX_PLUGINS
+    )
+    CHECKBOX_LABELS=(
+        "Install system packages"
+        "Install oh-my-zsh, powerlevel10k, zsh plugins"
+        "Install tmux plugin manager"
+        "Stow zsh config"
+        "Stow tmux config"
+        "Stow shared git config"
+        "Stow nvim config"
+        "Create local template files"
+        "Configure personal Git/GPG/GitHub auth"
+        "Set default shell to zsh"
+        "Install tmux plugins"
+    )
+    CHECKBOX_CANCELLED=0
+    prompt_checkbox_menu "Dotfiles setup"
+    if [[ "$CHECKBOX_CANCELLED" == "1" ]]; then
+        info "Setup cancelled."
+        exit 0
+    fi
 else
     info "Non-interactive mode: using default setup selection."
 fi

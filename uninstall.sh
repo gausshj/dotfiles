@@ -10,6 +10,28 @@ info() { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 step() { echo -e "${CYAN}[STEP]${NC} $*"; }
 
+tty_available() {
+    [[ -t 0 || -r /dev/tty ]]
+}
+
+read_key() {
+    local __var="$1"
+    if [[ -t 0 ]]; then
+        IFS= read -rsn1 "$__var"
+    else
+        IFS= read -rsn1 "$__var" </dev/tty
+    fi
+}
+
+read_key_rest() {
+    local __var="$1"
+    if [[ -t 0 ]]; then
+        IFS= read -rsn2 "$__var"
+    else
+        IFS= read -rsn2 "$__var" </dev/tty
+    fi
+}
+
 enabled() {
     local value
     eval "value=\${$1}"
@@ -24,6 +46,10 @@ mark() {
     fi
 }
 
+set_enabled() {
+    eval "$1=$2"
+}
+
 toggle() {
     local name="$1"
     local value
@@ -35,70 +61,101 @@ toggle() {
     fi
 }
 
-select_all() {
-    UNSTOW_ZSH=1
-    UNSTOW_TMUX=1
-    UNSTOW_GIT=1
-    UNSTOW_NVIM=1
-    REMOVE_LOCAL_TEMPLATES=1
-    REMOVE_TMUX_PLUGINS=1
-    REMOVE_ZSH_STACK=1
-    RESTORE_SHELL=1
+checkbox_set_all() {
+    local value="$1"
+    local var
+
+    for var in "${CHECKBOX_VARS[@]}"; do
+        set_enabled "$var" "$value"
+    done
 }
 
-select_none() {
-    UNSTOW_ZSH=0
-    UNSTOW_TMUX=0
-    UNSTOW_GIT=0
-    UNSTOW_NVIM=0
-    REMOVE_LOCAL_TEMPLATES=0
-    REMOVE_TMUX_PLUGINS=0
-    REMOVE_ZSH_STACK=0
-    RESTORE_SHELL=0
+render_checkbox_menu() {
+    local title="$1"
+    local cursor="$2"
+    local i var prefix marker
+
+    printf '\033[H\033[2J'
+    printf '%s\n\n' "$title"
+    printf 'Use Up/Down to move, Space to toggle, Enter to continue.\n'
+    printf 'Shortcuts: a = all, n = none, q = cancel.\n\n'
+
+    for i in "${!CHECKBOX_VARS[@]}"; do
+        var="${CHECKBOX_VARS[$i]}"
+        if [[ "$i" -eq "$cursor" ]]; then
+            prefix=">"
+        else
+            prefix=" "
+        fi
+        marker="$(mark "$var")"
+        printf ' %s %s %s\n' "$prefix" "$marker" "${CHECKBOX_LABELS[$i]}"
+    done
 }
 
-show_menu() {
-    echo ""
-    echo "Select uninstall steps. Type numbers to toggle, then press Enter to continue."
-    echo "Use comma or spaces between numbers. 'a' selects all, 'n' selects none."
-    echo ""
-    printf "  1) %s Unstow zsh config\n" "$(mark UNSTOW_ZSH)"
-    printf "  2) %s Unstow tmux config\n" "$(mark UNSTOW_TMUX)"
-    printf "  3) %s Unstow shared git config\n" "$(mark UNSTOW_GIT)"
-    printf "  4) %s Unstow nvim config\n" "$(mark UNSTOW_NVIM)"
-    printf "  5) %s Remove local template files\n" "$(mark REMOVE_LOCAL_TEMPLATES)"
-    printf "  6) %s Remove tmux plugins\n" "$(mark REMOVE_TMUX_PLUGINS)"
-    printf "  7) %s Remove oh-my-zsh, p10k, zsh plugins\n" "$(mark REMOVE_ZSH_STACK)"
-    printf "  8) %s Restore default shell to bash\n" "$(mark RESTORE_SHELL)"
-    echo ""
-}
-
-prompt_selection() {
-    local input item
+prompt_checkbox_menu() {
+    local title="$1"
+    local cursor=0
+    local count key rest current
 
     while true; do
-        show_menu
-        read -r -p "Toggle choices, or press Enter to continue: " input
-        [[ -z "$input" ]] && break
+        count="${#CHECKBOX_VARS[@]}"
+        render_checkbox_menu "$title" "$cursor"
 
-        input="${input//,/ }"
-        for item in $input; do
-            case "$item" in
-                1) toggle UNSTOW_ZSH ;;
-                2) toggle UNSTOW_TMUX ;;
-                3) toggle UNSTOW_GIT ;;
-                4) toggle UNSTOW_NVIM ;;
-                5) toggle REMOVE_LOCAL_TEMPLATES ;;
-                6) toggle REMOVE_TMUX_PLUGINS ;;
-                7) toggle REMOVE_ZSH_STACK ;;
-                8) toggle RESTORE_SHELL ;;
-                a|A) select_all ;;
-                n|N) select_none ;;
-                *)
-                    warn "Unknown choice: $item"
-                    ;;
-            esac
-        done
+        read_key key || break
+        case "$key" in
+            "")
+                printf '\n'
+                break
+                ;;
+            " ")
+                current="${CHECKBOX_VARS[$cursor]}"
+                toggle "$current"
+                ;;
+            a|A)
+                checkbox_set_all 1
+                ;;
+            n|N)
+                checkbox_set_all 0
+                ;;
+            q|Q)
+                CHECKBOX_CANCELLED=1
+                printf '\n'
+                break
+                ;;
+            $'\033')
+                read_key_rest rest || true
+                case "$rest" in
+                    "[A")
+                        if [[ "$cursor" -gt 0 ]]; then
+                            cursor=$((cursor - 1))
+                        else
+                            cursor=$((count - 1))
+                        fi
+                        ;;
+                    "[B")
+                        if [[ "$cursor" -lt $((count - 1)) ]]; then
+                            cursor=$((cursor + 1))
+                        else
+                            cursor=0
+                        fi
+                        ;;
+                esac
+                ;;
+            k|K)
+                if [[ "$cursor" -gt 0 ]]; then
+                    cursor=$((cursor - 1))
+                else
+                    cursor=$((count - 1))
+                fi
+                ;;
+            j|J)
+                if [[ "$cursor" -lt $((count - 1)) ]]; then
+                    cursor=$((cursor + 1))
+                else
+                    cursor=0
+                fi
+                ;;
+        esac
     done
 }
 
@@ -217,8 +274,33 @@ REMOVE_TMUX_PLUGINS=0
 REMOVE_ZSH_STACK=0
 RESTORE_SHELL=0
 
-if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" && -t 0 ]]; then
-    prompt_selection
+if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
+    CHECKBOX_VARS=(
+        UNSTOW_ZSH
+        UNSTOW_TMUX
+        UNSTOW_GIT
+        UNSTOW_NVIM
+        REMOVE_LOCAL_TEMPLATES
+        REMOVE_TMUX_PLUGINS
+        REMOVE_ZSH_STACK
+        RESTORE_SHELL
+    )
+    CHECKBOX_LABELS=(
+        "Unstow zsh config"
+        "Unstow tmux config"
+        "Unstow shared git config"
+        "Unstow nvim config"
+        "Remove local template files"
+        "Remove tmux plugins"
+        "Remove oh-my-zsh, p10k, zsh plugins"
+        "Restore default shell to bash"
+    )
+    CHECKBOX_CANCELLED=0
+    prompt_checkbox_menu "Dotfiles uninstall"
+    if [[ "$CHECKBOX_CANCELLED" == "1" ]]; then
+        info "Uninstall cancelled."
+        exit 0
+    fi
 else
     info "Non-interactive mode: using default uninstall selection."
 fi
