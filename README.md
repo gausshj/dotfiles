@@ -68,6 +68,8 @@ exec zsh
 
 `bootstrap.sh` shows a checkbox-style setup menu when run in an interactive terminal. Type numbers to toggle items, then press Enter to run the selected steps. The personal Git/GPG/GitHub auth option is off by default, which keeps VPS installs free of local identity and GitHub token setup.
 
+If an existing dotfile would conflict with a stow-managed file, `bootstrap.sh` backs it up under `~/.dotfiles-backup/<timestamp>/` before linking the repo version.
+
 On a personal development machine, optionally configure Git identity, commit signing, and `GH_TOKEN`:
 
 ```bash

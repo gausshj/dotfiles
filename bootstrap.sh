@@ -10,6 +10,10 @@ info() { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 step() { echo -e "${CYAN}[STEP]${NC} $*"; }
 
+tty_available() {
+    [[ -r /dev/tty && -w /dev/tty ]]
+}
+
 enabled() {
     local value
     eval "value=\${$1}"
@@ -87,7 +91,7 @@ prompt_feature_selection() {
 
     while true; do
         show_feature_menu
-        read -r -p "Toggle choices, or press Enter to continue: " input
+        read -r -p "Toggle choices, or press Enter to continue: " input </dev/tty
         [[ -z "$input" ]] && break
 
         input="${input//,/ }"
@@ -212,6 +216,45 @@ install_tpm() {
     fi
 }
 
+backup_root() {
+    if [[ -z "${DOTFILES_BACKUP_DIR:-}" ]]; then
+        DOTFILES_BACKUP_DIR="$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)"
+    fi
+    printf '%s' "$DOTFILES_BACKUP_DIR"
+}
+
+is_dotfiles_link() {
+    local target="$1"
+    local link_dest resolved_target
+
+    [[ -L "$target" ]] || return 1
+    link_dest="$(readlink "$target")"
+    if [[ "$link_dest" != /* ]]; then
+        link_dest="$(cd "$(dirname "$target")" && cd "$(dirname "$link_dest")" && pwd -P)/$(basename "$link_dest")"
+    fi
+    resolved_target="$(cd "$(dirname "$link_dest")" 2>/dev/null && pwd -P)/$(basename "$link_dest")"
+    [[ "$resolved_target" == "$DOTFILES/"* ]]
+}
+
+backup_stow_conflicts() {
+    local pkg="$1"
+    local source rel target backup_dir backup_path
+
+    while IFS= read -r source; do
+        rel="${source#"$DOTFILES/$pkg/"}"
+        target="$HOME/$rel"
+
+        [[ -e "$target" || -L "$target" ]] || continue
+        is_dotfiles_link "$target" && continue
+
+        backup_dir="$(backup_root)"
+        backup_path="$backup_dir/$rel"
+        mkdir -p "$(dirname "$backup_path")"
+        warn "Backing up existing $target to $backup_path"
+        mv "$target" "$backup_path"
+    done < <(find "$DOTFILES/$pkg" -type f)
+}
+
 stow_package() {
     local pkg="$1"
 
@@ -226,7 +269,8 @@ stow_package() {
     fi
 
     info "Stowing $pkg..."
-    stow -v -R -t "$HOME" "$pkg" 2>&1 || true
+    backup_stow_conflicts "$pkg"
+    stow -v -R -t "$HOME" "$pkg"
 }
 
 stow_dotfiles() {
@@ -255,7 +299,7 @@ copy_templates() {
 }
 
 configure_git() {
-    if [[ -t 0 && -x "$DOTFILES/scripts/configure-git.sh" ]]; then
+    if tty_available && [[ -x "$DOTFILES/scripts/configure-git.sh" ]]; then
         step "Configuring personal Git/GPG/GitHub auth..."
         "$DOTFILES/scripts/configure-git.sh"
     else
@@ -273,12 +317,18 @@ change_default_shell() {
 
     if [[ "${SHELL:-}" != "$ZSH_PATH" ]]; then
         if [[ "$OS_TYPE" == "macos" ]]; then
-            sudo dscl . -create "/Users/$USER" UserShell "$ZSH_PATH" 2>/dev/null ||
+            if sudo dscl . -create "/Users/$USER" UserShell "$ZSH_PATH" 2>/dev/null; then
+                info "Default shell changed to $ZSH_PATH (new terminal sessions will use zsh)"
+            else
                 warn "Could not change shell via dscl - run: chsh -s $ZSH_PATH"
+            fi
         else
-            chsh -s "$ZSH_PATH" || warn "Could not change shell - run: chsh -s $ZSH_PATH"
+            if chsh -s "$ZSH_PATH"; then
+                info "Default shell changed to $ZSH_PATH (new terminal sessions will use zsh)"
+            else
+                warn "Could not change shell - run: chsh -s $ZSH_PATH"
+            fi
         fi
-        info "Default shell changed to $ZSH_PATH (new terminal sessions will use zsh)"
     else
         info "Default shell already set to $ZSH_PATH"
     fi
@@ -335,7 +385,7 @@ if [[ "$OS_TYPE" == "linux" ]]; then
     STOW_NVIM=1
 fi
 
-if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" && -t 0 ]]; then
+if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
     prompt_feature_selection
 else
     info "Non-interactive mode: using default setup selection."

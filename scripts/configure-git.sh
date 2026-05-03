@@ -10,6 +10,10 @@ info() { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 step() { echo -e "${CYAN}[STEP]${NC} $*"; }
 
+tty_available() {
+    [[ -r /dev/tty && -w /dev/tty ]]
+}
+
 marker_begin() {
     printf '# >>> dotfiles git setup >>>\n'
 }
@@ -24,10 +28,10 @@ prompt() {
     local value
 
     if [[ -n "$default" ]]; then
-        read -r -p "$label [$default]: " value
+        read -r -p "$label [$default]: " value </dev/tty
         printf '%s' "${value:-$default}"
     else
-        read -r -p "$label: " value
+        read -r -p "$label: " value </dev/tty
         printf '%s' "$value"
     fi
 }
@@ -36,7 +40,7 @@ prompt_secret() {
     local label="$1"
     local value
 
-    read -r -s -p "$label: " value
+    read -r -s -p "$label: " value </dev/tty
     printf '\n' >&2
     printf '%s' "$value"
 }
@@ -132,7 +136,7 @@ EOF
     info "Wrote $file"
 }
 
-if [[ ! -t 0 ]]; then
+if ! tty_available; then
     warn "No interactive terminal detected; skipping local configuration prompts."
     exit 0
 fi
