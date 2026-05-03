@@ -1,0 +1,15 @@
+# ─────────────────────────────────────────────
+# Machine-specific zsh overrides
+# Copy to ~/.zshrc.local and customize.
+# ~/.zshrc.local is gitignored — never commit it.
+# ─────────────────────────────────────────────
+
+# --- Paths ---
+# export PATH="$HOME/.local/bin:$PATH"
+
+# --- Proxies ---
+# export http_proxy="http://127.0.0.1:7890"
+# export https_proxy="http://127.0.0.1:7890"
+
+# --- macOS-specific ---
+# alias gapt="git add . && pytest"
