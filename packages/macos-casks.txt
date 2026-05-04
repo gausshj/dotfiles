@@ -1,0 +1,2 @@
+# Homebrew casks used by bootstrap.sh.
+claude-code

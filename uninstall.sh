@@ -75,7 +75,7 @@ render_checkbox_menu() {
     local cursor="$2"
     local i var prefix marker
 
-    printf '\033[H\033[2J'
+    printf '\033[H'
     printf '%s\n\n' "$title"
     printf 'Use Up/Down to move, Space to toggle, Enter to continue.\n'
     printf 'Shortcuts: a = all, n = none, q = cancel.\n\n'
@@ -90,6 +90,7 @@ render_checkbox_menu() {
         marker="$(mark "$var")"
         printf ' %s %s %s\n' "$prefix" "$marker" "${CHECKBOX_LABELS[$i]}"
     done
+    printf '\033[J'
 }
 
 prompt_checkbox_menu() {
@@ -97,6 +98,7 @@ prompt_checkbox_menu() {
     local cursor=0
     local count key rest current
 
+    printf '\033[?1049h\033[?25l\033[H\033[J'
     while true; do
         count="${#CHECKBOX_VARS[@]}"
         render_checkbox_menu "$title" "$cursor"
@@ -157,9 +159,33 @@ prompt_checkbox_menu() {
                 ;;
         esac
     done
+    printf '\033[?25h\033[?1049l'
 }
 
-unstow_package() {
+remove_package_copies() {
+    local pkg="$1"
+    local source rel target
+
+    if [[ ! -d "$DOTFILES/$pkg" ]]; then
+        warn "Package not found: $pkg"
+        return
+    fi
+
+    while IFS= read -r source; do
+        rel="${source#"$DOTFILES/$pkg/"}"
+        target="$HOME/$rel"
+
+        [[ -f "$target" && ! -L "$target" ]] || continue
+        if cmp -s "$source" "$target"; then
+            rm -f "$target"
+            info "Removed copied $target"
+        else
+            warn "$target was modified, skipping"
+        fi
+    done < <(find "$DOTFILES/$pkg" -type f)
+}
+
+remove_deployed_package() {
     local pkg="$1"
 
     if [[ ! -d "$DOTFILES/$pkg" ]]; then
@@ -167,23 +193,24 @@ unstow_package() {
         return
     fi
 
-    if ! command -v stow >/dev/null 2>&1; then
-        warn "stow is not installed; cannot unstow $pkg"
-        return
-    fi
+    remove_package_copies "$pkg"
 
-    info "Unstowing $pkg..."
-    stow -v -D -t "$HOME" "$pkg" 2>&1 || true
+    if command -v stow >/dev/null 2>&1; then
+        info "Removing stow links for $pkg..."
+        stow -v -D -t "$HOME" "$pkg" 2>&1 || true
+    else
+        warn "stow is not installed; skipped link removal for $pkg"
+    fi
 }
 
-unstow_dotfiles() {
-    step "Unstowing dotfiles..."
+remove_deployed_dotfiles() {
+    step "Removing deployed dotfiles..."
     cd "$DOTFILES"
 
-    enabled UNSTOW_ZSH && unstow_package zsh
-    enabled UNSTOW_TMUX && unstow_package tmux
-    enabled UNSTOW_GIT && unstow_package git
-    enabled UNSTOW_NVIM && unstow_package nvim
+    enabled REMOVE_ZSH_CONFIG && remove_deployed_package zsh
+    enabled REMOVE_TMUX_CONFIG && remove_deployed_package tmux
+    enabled REMOVE_GIT_CONFIG && remove_deployed_package git
+    enabled REMOVE_NVIM_CONFIG && remove_deployed_package nvim
     return 0
 }
 
@@ -267,10 +294,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOTFILES="$SCRIPT_DIR"
 info "Dotfiles directory: $DOTFILES"
 
-UNSTOW_ZSH=1
-UNSTOW_TMUX=1
-UNSTOW_GIT=1
-UNSTOW_NVIM=1
+REMOVE_ZSH_CONFIG=1
+REMOVE_TMUX_CONFIG=1
+REMOVE_GIT_CONFIG=1
+REMOVE_NVIM_CONFIG=1
 REMOVE_LOCAL_TEMPLATES=0
 REMOVE_TMUX_PLUGINS=0
 REMOVE_ZSH_STACK=0
@@ -278,20 +305,20 @@ RESTORE_SHELL=0
 
 if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
     CHECKBOX_VARS=(
-        UNSTOW_ZSH
-        UNSTOW_TMUX
-        UNSTOW_GIT
-        UNSTOW_NVIM
+        REMOVE_ZSH_CONFIG
+        REMOVE_TMUX_CONFIG
+        REMOVE_GIT_CONFIG
+        REMOVE_NVIM_CONFIG
         REMOVE_LOCAL_TEMPLATES
         REMOVE_TMUX_PLUGINS
         REMOVE_ZSH_STACK
         RESTORE_SHELL
     )
     CHECKBOX_LABELS=(
-        "Unstow zsh config"
-        "Unstow tmux config"
-        "Unstow shared git config"
-        "Unstow nvim config"
+        "Remove zsh config links/copies"
+        "Remove tmux config links/copies"
+        "Remove shared git config links/copies"
+        "Remove nvim config links/copies"
         "Remove local template files"
         "Remove tmux plugins"
         "Remove oh-my-zsh, p10k, zsh plugins"
@@ -307,7 +334,7 @@ else
     info "Non-interactive mode: using default uninstall selection."
 fi
 
-unstow_dotfiles
+remove_deployed_dotfiles
 enabled REMOVE_LOCAL_TEMPLATES && remove_local_templates
 enabled REMOVE_TMUX_PLUGINS && remove_tmux_plugins
 enabled REMOVE_ZSH_STACK && remove_zsh_stack

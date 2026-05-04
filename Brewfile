@@ -1,5 +1,5 @@
 # Run: brew bundle --file=Brewfile
-# macOS development tools
+# Manual Homebrew alternative. bootstrap.sh uses packages/macos-*.txt.
 
 tap "onllm-dev/tap"
 

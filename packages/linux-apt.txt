@@ -1,0 +1,12 @@
+# Ubuntu/Debian packages used by bootstrap.sh.
+stow
+git
+curl
+wget
+zsh
+tmux
+neovim
+fzf
+ripgrep
+fd-find
+bat
