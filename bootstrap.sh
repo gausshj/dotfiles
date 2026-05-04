@@ -10,6 +10,24 @@ info() { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 step() { echo -e "${CYAN}[STEP]${NC} $*"; }
 
+run_with_timeout() {
+    local seconds="$1"
+    shift
+
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$seconds" "$@"
+    else
+        "$@"
+    fi
+}
+
+git_clone_shallow() {
+    local url="$1"
+    local dest="$2"
+
+    run_with_timeout 120 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 clone --depth=1 "$url" "$dest"
+}
+
 tty_available() {
     [[ -t 0 || -r /dev/tty ]]
 }
@@ -208,12 +226,49 @@ install_system_packages() {
     fi
 }
 
+install_oh_my_zsh_official() {
+    local installer status
+
+    installer="$(mktemp)"
+
+    if command -v curl >/dev/null 2>&1; then
+        if curl -fsSL --connect-timeout 10 --max-time 60 https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh -o "$installer"; then
+            run_with_timeout 120 env CHSH=no RUNZSH=no KEEP_ZSHRC=yes sh "$installer" --unattended --keep-zshrc
+            status=$?
+            rm -f "$installer"
+            return "$status"
+        fi
+    fi
+
+    if command -v wget >/dev/null 2>&1; then
+        if wget -qO "$installer" --timeout=10 --tries=1 https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh; then
+            run_with_timeout 120 env CHSH=no RUNZSH=no KEEP_ZSHRC=yes sh "$installer" --unattended --keep-zshrc
+            status=$?
+            rm -f "$installer"
+            return "$status"
+        fi
+    fi
+
+    rm -f "$installer"
+    return 1
+}
+
 install_zsh_stack() {
     step "Installing oh-my-zsh..."
     if [[ -d "$HOME/.oh-my-zsh" ]]; then
         info "oh-my-zsh already installed"
+    elif install_oh_my_zsh_official; then
+        info "oh-my-zsh installed via official installer"
     else
-        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+        warn "Official oh-my-zsh installer failed; falling back to bounded git clone"
+        rm -rf "$HOME/.oh-my-zsh"
+        if git_clone_shallow https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh"; then
+            info "oh-my-zsh installed via git clone"
+        else
+            rm -rf "$HOME/.oh-my-zsh"
+            warn "Could not install oh-my-zsh; skipping zsh framework setup"
+            return
+        fi
     fi
 
     step "Installing powerlevel10k..."
@@ -221,7 +276,7 @@ install_zsh_stack() {
     if [[ -d "$P10K_DIR" ]]; then
         info "powerlevel10k already installed"
     elif [[ -d "$HOME/.oh-my-zsh" ]]; then
-        git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P10K_DIR"
+        git_clone_shallow https://github.com/romkatv/powerlevel10k.git "$P10K_DIR" || warn "Could not install powerlevel10k"
     fi
 
     step "Installing zsh plugins..."
@@ -229,19 +284,19 @@ install_zsh_stack() {
     mkdir -p "$PLUGIN_DIR"
 
     if [[ ! -d "$PLUGIN_DIR/zsh-autosuggestions" ]]; then
-        git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions.git "$PLUGIN_DIR/zsh-autosuggestions"
+        git_clone_shallow https://github.com/zsh-users/zsh-autosuggestions.git "$PLUGIN_DIR/zsh-autosuggestions" || warn "Could not install zsh-autosuggestions"
     else
         info "zsh-autosuggestions already installed"
     fi
 
     if [[ ! -d "$PLUGIN_DIR/zsh-syntax-highlighting" ]]; then
-        git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git "$PLUGIN_DIR/zsh-syntax-highlighting"
+        git_clone_shallow https://github.com/zsh-users/zsh-syntax-highlighting.git "$PLUGIN_DIR/zsh-syntax-highlighting" || warn "Could not install zsh-syntax-highlighting"
     else
         info "zsh-syntax-highlighting already installed"
     fi
 
     if [[ ! -d "$PLUGIN_DIR/zsh-z" ]]; then
-        git clone --depth=1 https://github.com/agkozak/zsh-z.git "$PLUGIN_DIR/zsh-z"
+        git_clone_shallow https://github.com/agkozak/zsh-z.git "$PLUGIN_DIR/zsh-z" || warn "Could not install zsh-z"
     else
         info "zsh-z already installed"
     fi
@@ -253,7 +308,7 @@ install_tpm() {
     if [[ -d "$TPM_DIR" ]]; then
         info "TPM already installed"
     else
-        git clone --depth=1 https://github.com/tmux-plugins/tpm.git "$TPM_DIR"
+        git_clone_shallow https://github.com/tmux-plugins/tpm.git "$TPM_DIR" || warn "Could not install TPM"
     fi
 }
 

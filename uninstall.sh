@@ -187,8 +187,9 @@ unstow_dotfiles() {
     return 0
 }
 
-remove_if_dotfiles_managed() {
-    local path="$1"
+remove_template_file() {
+    local template="$1"
+    local path="$2"
 
     if [[ ! -e "$path" ]]; then
         info "$path does not exist, skipping"
@@ -200,18 +201,19 @@ remove_if_dotfiles_managed() {
         return
     fi
 
-    if grep -q "dotfiles" "$path" 2>/dev/null; then
-        rm -i "$path"
+    if cmp -s "$template" "$path"; then
+        rm -f "$path"
+        info "Removed $path"
     else
-        warn "$path does not look dotfiles-managed, skipping"
+        warn "$path was modified, skipping"
     fi
 }
 
 remove_local_templates() {
     step "Removing local template files..."
-    remove_if_dotfiles_managed "$HOME/.zshrc.local"
-    remove_if_dotfiles_managed "$HOME/.zshrc.secrets"
-    remove_if_dotfiles_managed "$HOME/.gitconfig.local"
+    remove_template_file "$DOTFILES/templates/zshrc.local" "$HOME/.zshrc.local"
+    remove_template_file "$DOTFILES/templates/zshrc.secrets" "$HOME/.zshrc.secrets"
+    remove_template_file "$DOTFILES/templates/gitconfig.local" "$HOME/.gitconfig.local"
 }
 
 remove_tmux_plugins() {
