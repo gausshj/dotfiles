@@ -1,0 +1,14 @@
+# Homebrew formulae used by bootstrap.sh.
+cmake
+fzf
+gh
+gnupg
+pinentry-mac
+powerlevel10k
+reattach-to-user-namespace
+stow
+tmux
+uv
+onllm-dev/tap/onwatch
+zsh-autosuggestions
+zsh-syntax-highlighting

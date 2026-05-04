@@ -93,7 +93,7 @@ render_checkbox_menu() {
     local cursor="$2"
     local i var prefix marker
 
-    printf '\033[H\033[2J'
+    printf '\033[H'
     printf '%s\n\n' "$title"
     printf 'Use Up/Down to move, Space to toggle, Enter to continue.\n'
     printf 'Shortcuts: a = all, n = none, q = cancel.\n\n'
@@ -108,6 +108,7 @@ render_checkbox_menu() {
         marker="$(mark "$var")"
         printf ' %s %s %s\n' "$prefix" "$marker" "${CHECKBOX_LABELS[$i]}"
     done
+    printf '\033[J'
 }
 
 prompt_checkbox_menu() {
@@ -115,6 +116,7 @@ prompt_checkbox_menu() {
     local cursor=0
     local count key rest current
 
+    printf '\033[?1049h\033[?25l\033[H\033[J'
     while true; do
         count="${#CHECKBOX_VARS[@]}"
         render_checkbox_menu "$title" "$cursor"
@@ -175,13 +177,90 @@ prompt_checkbox_menu() {
                 ;;
         esac
     done
+    printf '\033[?25h\033[?1049l'
+}
+
+package_file_path() {
+    printf '%s/packages/%s\n' "$DOTFILES" "$1"
+}
+
+read_package_file() {
+    local file="$1"
+
+    [[ -f "$file" ]] || return 0
+    sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$file"
+}
+
+install_homebrew_if_needed() {
+    if ! command -v brew >/dev/null 2>&1; then
+        warn "Homebrew not found - installing Homebrew first..."
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+}
+
+install_macos_packages() {
+    local item
+
+    install_homebrew_if_needed
+
+    while IFS= read -r item; do
+        info "Tapping $item..."
+        brew tap "$item"
+    done < <(read_package_file "$(package_file_path macos-taps.txt)")
+
+    while IFS= read -r item; do
+        if brew list "$item" >/dev/null 2>&1; then
+            info "$item already installed"
+        else
+            brew install "$item"
+        fi
+    done < <(read_package_file "$(package_file_path macos-brews.txt)")
+
+    while IFS= read -r item; do
+        if brew list --cask "$item" >/dev/null 2>&1; then
+            info "$item already installed"
+        else
+            brew install --cask "$item"
+        fi
+    done < <(read_package_file "$(package_file_path macos-casks.txt)")
+}
+
+install_linux_packages() {
+    local package_file packages
+
+    package_file="$(package_file_path linux-apt.txt)"
+    if command -v apt >/dev/null 2>&1; then
+        packages="$(read_package_file "$package_file" | xargs)"
+        if [[ -z "$packages" ]]; then
+            warn "No apt packages listed in $package_file"
+            return
+        fi
+        sudo apt update
+        sudo apt install -y $packages
+
+        mkdir -p "$HOME/.local/bin"
+        if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then
+            ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+        fi
+        if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then
+            ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+        fi
+    elif command -v pacman >/dev/null 2>&1; then
+        warn "pacman package manifest is not configured yet; install packages manually or add packages/arch-pacman.txt support."
+    elif command -v dnf >/dev/null 2>&1; then
+        warn "dnf package manifest is not configured yet; install packages manually or add packages/fedora-dnf.txt support."
+    else
+        warn "Cannot determine package manager - skipping system packages"
+    fi
 }
 
 install_stow() {
-    step "Installing GNU Stow..."
     if command -v stow >/dev/null 2>&1; then
-        info "stow already installed"
-    elif [[ "$OS_TYPE" == "macos" ]]; then
+        return
+    fi
+
+    step "Installing GNU Stow..."
+    if [[ "$OS_TYPE" == "macos" ]]; then
         if ! command -v brew >/dev/null 2>&1; then
             warn "Homebrew not found - installing Homebrew first..."
             /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -202,27 +281,11 @@ install_stow() {
 }
 
 install_system_packages() {
-    install_stow
-
     step "Installing system packages..."
     if [[ "$OS_TYPE" == "macos" ]]; then
-        if [[ -f "$DOTFILES/Brewfile" ]]; then
-            info "Running brew bundle..."
-            brew bundle --file="$DOTFILES/Brewfile"
-        fi
+        install_macos_packages
     elif [[ "$OS_TYPE" == "linux" ]]; then
-        if command -v apt >/dev/null 2>&1; then
-            sudo apt update
-            sudo apt install -y zsh tmux fzf ripgrep fd-find bat
-
-            mkdir -p "$HOME/.local/bin"
-            if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then
-                ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
-            fi
-            if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then
-                ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
-            fi
-        fi
+        install_linux_packages
     fi
 }
 
@@ -369,14 +432,48 @@ stow_package() {
     stow -v -R -t "$HOME" "$pkg"
 }
 
-stow_dotfiles() {
-    step "Stowing dotfiles..."
+copy_package() {
+    local pkg="$1"
+    local source rel target
+
+    if [[ ! -d "$DOTFILES/$pkg" ]]; then
+        warn "Package not found: $pkg"
+        return
+    fi
+
+    info "Copying $pkg..."
+    backup_stow_conflicts "$pkg"
+    while IFS= read -r source; do
+        rel="${source#"$DOTFILES/$pkg/"}"
+        target="$HOME/$rel"
+        mkdir -p "$(dirname "$target")"
+        cp -p "$source" "$target"
+        info "Copied $target"
+    done < <(find "$DOTFILES/$pkg" -type f)
+}
+
+deploy_package() {
+    local pkg="$1"
+
+    if enabled USE_SYMLINKS; then
+        stow_package "$pkg"
+    else
+        copy_package "$pkg"
+    fi
+}
+
+deploy_dotfiles() {
+    if enabled USE_SYMLINKS; then
+        step "Stowing dotfiles..."
+    else
+        step "Copying dotfiles..."
+    fi
     cd "$DOTFILES"
 
-    enabled STOW_ZSH && stow_package zsh
-    enabled STOW_TMUX && stow_package tmux
-    enabled STOW_GIT && stow_package git
-    enabled STOW_NVIM && stow_package nvim
+    enabled DEPLOY_ZSH && deploy_package zsh
+    enabled DEPLOY_TMUX && deploy_package tmux
+    enabled DEPLOY_GIT && deploy_package git
+    enabled DEPLOY_NVIM && deploy_package nvim
     return 0
 }
 
@@ -408,6 +505,7 @@ change_default_shell() {
     ZSH_PATH="$(command -v zsh || true)"
     if [[ -z "$ZSH_PATH" ]]; then
         warn "zsh not found; skipping default shell change"
+        SHELL_CHANGE_STATUS="missing"
         return
     fi
 
@@ -415,18 +513,23 @@ change_default_shell() {
         if [[ "$OS_TYPE" == "macos" ]]; then
             if sudo dscl . -create "/Users/$USER" UserShell "$ZSH_PATH" 2>/dev/null; then
                 info "Default shell changed to $ZSH_PATH (new terminal sessions will use zsh)"
+                SHELL_CHANGE_STATUS="changed"
             else
                 warn "Could not change shell via dscl - run: chsh -s $ZSH_PATH"
+                SHELL_CHANGE_STATUS="failed"
             fi
         else
             if chsh -s "$ZSH_PATH"; then
                 info "Default shell changed to $ZSH_PATH (new terminal sessions will use zsh)"
+                SHELL_CHANGE_STATUS="changed"
             else
                 warn "Could not change shell - run: chsh -s $ZSH_PATH"
+                SHELL_CHANGE_STATUS="failed"
             fi
         fi
     else
         info "Default shell already set to $ZSH_PATH"
+        SHELL_CHANGE_STATUS="already"
     fi
 }
 
@@ -465,20 +568,22 @@ info "Dotfiles directory: $DOTFILES"
 # ------------------------------------------------------------------
 # Default setup selection
 # ------------------------------------------------------------------
-INSTALL_PACKAGES=1
-INSTALL_ZSH_STACK=1
-INSTALL_TMUX_STACK=1
-STOW_ZSH=1
-STOW_TMUX=1
-STOW_GIT=1
-STOW_NVIM=0
-COPY_TEMPLATES=1
+INSTALL_PACKAGES="${DOTFILES_INSTALL_PACKAGES:-1}"
+INSTALL_ZSH_STACK="${DOTFILES_INSTALL_ZSH_STACK:-1}"
+INSTALL_TMUX_STACK="${DOTFILES_INSTALL_TMUX_STACK:-1}"
+USE_SYMLINKS="${DOTFILES_USE_SYMLINKS:-1}"
+DEPLOY_ZSH="${DOTFILES_DEPLOY_ZSH:-1}"
+DEPLOY_TMUX="${DOTFILES_DEPLOY_TMUX:-1}"
+DEPLOY_GIT="${DOTFILES_DEPLOY_GIT:-1}"
+DEPLOY_NVIM="${DOTFILES_DEPLOY_NVIM:-0}"
+COPY_TEMPLATES="${DOTFILES_COPY_TEMPLATES:-1}"
 CONFIGURE_GIT="${DOTFILES_CONFIGURE_GIT:-0}"
-CHANGE_SHELL=1
-INSTALL_TMUX_PLUGINS=1
+CHANGE_SHELL="${DOTFILES_CHANGE_SHELL:-1}"
+INSTALL_TMUX_PLUGINS="${DOTFILES_INSTALL_TMUX_PLUGINS:-1}"
+SHELL_CHANGE_STATUS="not_requested"
 
-if [[ "$OS_TYPE" == "linux" ]]; then
-    STOW_NVIM=1
+if [[ "$OS_TYPE" == "linux" && -z "${DOTFILES_DEPLOY_NVIM:-}" ]]; then
+    DEPLOY_NVIM=1
 fi
 
 if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
@@ -486,10 +591,11 @@ if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
         INSTALL_PACKAGES
         INSTALL_ZSH_STACK
         INSTALL_TMUX_STACK
-        STOW_ZSH
-        STOW_TMUX
-        STOW_GIT
-        STOW_NVIM
+        USE_SYMLINKS
+        DEPLOY_ZSH
+        DEPLOY_TMUX
+        DEPLOY_GIT
+        DEPLOY_NVIM
         COPY_TEMPLATES
         CONFIGURE_GIT
         CHANGE_SHELL
@@ -499,10 +605,11 @@ if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
         "Install system packages"
         "Install oh-my-zsh, powerlevel10k, zsh plugins"
         "Install tmux plugin manager"
-        "Stow zsh config"
-        "Stow tmux config"
-        "Stow shared git config"
-        "Stow nvim config"
+        "Use symlinks via stow (uncheck to copy files)"
+        "Deploy zsh config"
+        "Deploy tmux config"
+        "Deploy shared git config"
+        "Deploy nvim config"
         "Create local template files"
         "Configure personal Git/GPG/GitHub auth"
         "Set default shell to zsh"
@@ -524,7 +631,7 @@ fi
 enabled INSTALL_PACKAGES && install_system_packages
 enabled INSTALL_ZSH_STACK && install_zsh_stack
 enabled INSTALL_TMUX_STACK && install_tpm
-stow_dotfiles
+deploy_dotfiles
 enabled COPY_TEMPLATES && copy_templates
 enabled CONFIGURE_GIT && configure_git
 enabled CHANGE_SHELL && change_default_shell
@@ -541,5 +648,15 @@ echo -e "  Optional follow-up:"
 echo -e "  - Personal Git/GPG/GitHub auth: ${YELLOW}scripts/configure-git.sh${NC}"
 echo -e "  - Local overrides: ${YELLOW}~/.zshrc.local${NC}"
 echo -e "  - Machine credentials: ${YELLOW}~/.zshrc.secrets${NC}"
-echo -e "  - Restart terminal or run: ${YELLOW}exec zsh${NC}"
+if [[ "$SHELL_CHANGE_STATUS" == "changed" || "$SHELL_CHANGE_STATUS" == "already" ]]; then
+    echo -e "  - Open a new terminal, or run now: ${YELLOW}exec zsh${NC}"
+elif [[ "$SHELL_CHANGE_STATUS" == "failed" && -n "${ZSH_PATH:-}" ]]; then
+    echo -e "  - Default shell was not changed. Run: ${YELLOW}chsh -s $ZSH_PATH${NC}"
+    echo -e "  - To try zsh only in this session: ${YELLOW}exec zsh${NC}"
+elif [[ "$SHELL_CHANGE_STATUS" == "missing" ]]; then
+    echo -e "  - Install zsh, then rerun bootstrap or run: ${YELLOW}chsh -s /path/to/zsh${NC}"
+elif [[ -n "$(command -v zsh || true)" ]]; then
+    echo -e "  - To try zsh now: ${YELLOW}exec zsh${NC}"
+    echo -e "  - To make zsh default: ${YELLOW}chsh -s $(command -v zsh)${NC}"
+fi
 echo "════════════════════════════════════════════════"

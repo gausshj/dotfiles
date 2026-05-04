@@ -1,6 +1,6 @@
 # Dotfiles
 
-> My personal dotfiles for zsh, tmux, nvim, and more. One-command setup across macOS and Linux via `stow`.
+> My personal dotfiles for zsh, tmux, nvim, and more. One-command setup across macOS and Linux via `stow` symlinks or copied files.
 
 ## Quick Install
 
@@ -22,7 +22,8 @@ curl -fsSL https://raw.githubusercontent.com/gausshj/dotfiles/main/install.sh | 
 | `tmux/` | `.tmux.conf` + fzf pane switcher |
 | `nvim/` | `.config/nvim/init.vim` — gruvbox, LSP, treesitter, telescope |
 | `git/` | shared `.gitconfig`; identity/signing live in `~/.gitconfig.local` |
-| `Brewfile` | macOS-only: `brew bundle` to install all tools |
+| `packages/` | package manifests used by `bootstrap.sh` |
+| `Brewfile` | macOS-only: manual `brew bundle` alternative |
 | `scripts/` | optional local setup helpers |
 
 ## Structure
@@ -33,6 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/gausshj/dotfiles/main/install.sh | 
 ├── uninstall.sh          # Interactive uninstaller
 ├── install.sh           # One-liner entry point for curl
 ├── Brewfile             # macOS Homebrew packages
+├── packages/            # Package manifests used by bootstrap.sh
 ├── scripts/
 │   └── configure-git.sh # Optional personal Git/GPG/GitHub setup
 ├── zsh/
@@ -68,7 +70,16 @@ exec zsh
 
 `bootstrap.sh` shows a checkbox-style setup menu when run in an interactive terminal. Use Up/Down to move, Space to toggle items, and Enter to run the selected steps. The personal Git/GPG/GitHub auth option is off by default, which keeps VPS installs free of local identity and GitHub token setup.
 
-If an existing dotfile would conflict with a stow-managed file, `bootstrap.sh` backs it up under `~/.dotfiles-backup/<timestamp>/` before linking the repo version.
+By default, configs are deployed with `stow` symlinks. Uncheck `Use symlinks via stow` to copy files into `$HOME` instead. If an existing dotfile would conflict, `bootstrap.sh` backs it up under `~/.dotfiles-backup/<timestamp>/` before deploying the repo version.
+
+System packages are listed in plain text under `packages/`:
+
+| File | Used for |
+|------|----------|
+| `packages/linux-apt.txt` | Ubuntu/Debian apt packages |
+| `packages/macos-taps.txt` | Homebrew taps |
+| `packages/macos-brews.txt` | Homebrew formulae |
+| `packages/macos-casks.txt` | Homebrew casks |
 
 On a personal development machine, optionally configure Git identity, commit signing, and `GH_TOKEN`:
 
@@ -87,6 +98,12 @@ For non-interactive installs, the default selection is used:
 
 ```bash
 DOTFILES_NO_PROMPT=1 ./bootstrap.sh
+```
+
+Non-interactive defaults can be overridden with `DOTFILES_*` flags, for example:
+
+```bash
+DOTFILES_NO_PROMPT=1 DOTFILES_USE_SYMLINKS=0 DOTFILES_CHANGE_SHELL=0 ./bootstrap.sh
 ```
 
 ## macOS Only
@@ -112,7 +129,7 @@ cd ~/.dotfiles && git pull && ./bootstrap.sh
 - `.tmux.conf` uses `if-shell` to detect Darwin vs Linux for shell/path differences
 - `.zshrc` respects Homebrew only on macOS (`if command -v brew`)
 - Machine-specific values go in `~/.zshrc.secrets`, `~/.zshrc.local`, and `~/.gitconfig.local`
-- `stow` creates symlinks so changes in `~/.dotfiles` are reflected everywhere
+- `stow` creates symlinks so changes in `~/.dotfiles` are reflected everywhere; copied-file mode is available for machines where symlinks are not desired
 
 ## Privacy Model
 
@@ -135,4 +152,4 @@ cd ~/.dotfiles
 ./uninstall.sh
 ```
 
-The uninstaller also uses the same Up/Down, Space, Enter checkbox menu. By default it only removes stow-managed links. Removing local template files, tmux plugins, oh-my-zsh, or changing the default shell back to bash must be explicitly selected.
+The uninstaller also uses the same Up/Down, Space, Enter checkbox menu. By default it removes deployed config links and copied files that still exactly match the repo version. Removing local template files, tmux plugins, oh-my-zsh, or changing the default shell back to bash must be explicitly selected.

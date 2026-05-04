@@ -1,0 +1,2 @@
+# Homebrew taps used by bootstrap.sh.
+onllm-dev/tap
