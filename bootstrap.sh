@@ -10,6 +10,46 @@ info() { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 step() { echo -e "${CYAN}[STEP]${NC} $*"; }
 
+run_with_timeout() {
+    local seconds="$1"
+    shift
+
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$seconds" "$@"
+    else
+        "$@"
+    fi
+}
+
+git_clone_shallow() {
+    local url="$1"
+    local dest="$2"
+
+    run_with_timeout 120 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 clone --depth=1 "$url" "$dest"
+}
+
+tty_available() {
+    [[ -t 0 || -r /dev/tty ]]
+}
+
+read_key() {
+    local __var="$1"
+    if [[ -t 0 ]]; then
+        IFS= read -rsn1 "$__var"
+    else
+        IFS= read -rsn1 "$__var" </dev/tty
+    fi
+}
+
+read_key_rest() {
+    local __var="$1"
+    if [[ -t 0 ]]; then
+        IFS= read -rsn2 "$__var"
+    else
+        IFS= read -rsn2 "$__var" </dev/tty
+    fi
+}
+
 enabled() {
     local value
     eval "value=\${$1}"
@@ -24,6 +64,10 @@ mark() {
     fi
 }
 
+set_enabled() {
+    eval "$1=$2"
+}
+
 toggle() {
     local name="$1"
     local value
@@ -35,82 +79,101 @@ toggle() {
     fi
 }
 
-select_all() {
-    INSTALL_PACKAGES=1
-    INSTALL_ZSH_STACK=1
-    INSTALL_TMUX_STACK=1
-    STOW_ZSH=1
-    STOW_TMUX=1
-    STOW_GIT=1
-    STOW_NVIM=1
-    COPY_TEMPLATES=1
-    CONFIGURE_GIT=1
-    CHANGE_SHELL=1
-    INSTALL_TMUX_PLUGINS=1
+checkbox_set_all() {
+    local value="$1"
+    local var
+
+    for var in "${CHECKBOX_VARS[@]}"; do
+        set_enabled "$var" "$value"
+    done
 }
 
-select_none() {
-    INSTALL_PACKAGES=0
-    INSTALL_ZSH_STACK=0
-    INSTALL_TMUX_STACK=0
-    STOW_ZSH=0
-    STOW_TMUX=0
-    STOW_GIT=0
-    STOW_NVIM=0
-    COPY_TEMPLATES=0
-    CONFIGURE_GIT=0
-    CHANGE_SHELL=0
-    INSTALL_TMUX_PLUGINS=0
+render_checkbox_menu() {
+    local title="$1"
+    local cursor="$2"
+    local i var prefix marker
+
+    printf '\033[H\033[2J'
+    printf '%s\n\n' "$title"
+    printf 'Use Up/Down to move, Space to toggle, Enter to continue.\n'
+    printf 'Shortcuts: a = all, n = none, q = cancel.\n\n'
+
+    for i in "${!CHECKBOX_VARS[@]}"; do
+        var="${CHECKBOX_VARS[$i]}"
+        if [[ "$i" -eq "$cursor" ]]; then
+            prefix=">"
+        else
+            prefix=" "
+        fi
+        marker="$(mark "$var")"
+        printf ' %s %s %s\n' "$prefix" "$marker" "${CHECKBOX_LABELS[$i]}"
+    done
 }
 
-show_feature_menu() {
-    echo ""
-    echo "Select setup steps. Type numbers to toggle, then press Enter to continue."
-    echo "Use comma or spaces between numbers. 'a' selects all, 'n' selects none."
-    echo ""
-    printf "  1) %s Install system packages\n" "$(mark INSTALL_PACKAGES)"
-    printf "  2) %s Install oh-my-zsh, powerlevel10k, zsh plugins\n" "$(mark INSTALL_ZSH_STACK)"
-    printf "  3) %s Install tmux plugin manager\n" "$(mark INSTALL_TMUX_STACK)"
-    printf "  4) %s Stow zsh config\n" "$(mark STOW_ZSH)"
-    printf "  5) %s Stow tmux config\n" "$(mark STOW_TMUX)"
-    printf "  6) %s Stow shared git config\n" "$(mark STOW_GIT)"
-    printf "  7) %s Stow nvim config\n" "$(mark STOW_NVIM)"
-    printf "  8) %s Create local template files\n" "$(mark COPY_TEMPLATES)"
-    printf "  9) %s Configure personal Git/GPG/GitHub auth\n" "$(mark CONFIGURE_GIT)"
-    printf " 10) %s Set default shell to zsh\n" "$(mark CHANGE_SHELL)"
-    printf " 11) %s Install tmux plugins\n" "$(mark INSTALL_TMUX_PLUGINS)"
-    echo ""
-}
-
-prompt_feature_selection() {
-    local input item
+prompt_checkbox_menu() {
+    local title="$1"
+    local cursor=0
+    local count key rest current
 
     while true; do
-        show_feature_menu
-        read -r -p "Toggle choices, or press Enter to continue: " input
-        [[ -z "$input" ]] && break
+        count="${#CHECKBOX_VARS[@]}"
+        render_checkbox_menu "$title" "$cursor"
 
-        input="${input//,/ }"
-        for item in $input; do
-            case "$item" in
-                1) toggle INSTALL_PACKAGES ;;
-                2) toggle INSTALL_ZSH_STACK ;;
-                3) toggle INSTALL_TMUX_STACK ;;
-                4) toggle STOW_ZSH ;;
-                5) toggle STOW_TMUX ;;
-                6) toggle STOW_GIT ;;
-                7) toggle STOW_NVIM ;;
-                8) toggle COPY_TEMPLATES ;;
-                9) toggle CONFIGURE_GIT ;;
-                10) toggle CHANGE_SHELL ;;
-                11) toggle INSTALL_TMUX_PLUGINS ;;
-                a|A) select_all ;;
-                n|N) select_none ;;
-                *)
-                    warn "Unknown choice: $item"
-                    ;;
-            esac
-        done
+        read_key key || break
+        case "$key" in
+            "")
+                printf '\n'
+                break
+                ;;
+            " ")
+                current="${CHECKBOX_VARS[$cursor]}"
+                toggle "$current"
+                ;;
+            a|A)
+                checkbox_set_all 1
+                ;;
+            n|N)
+                checkbox_set_all 0
+                ;;
+            q|Q)
+                CHECKBOX_CANCELLED=1
+                printf '\n'
+                break
+                ;;
+            $'\033')
+                read_key_rest rest || true
+                case "$rest" in
+                    "[A")
+                        if [[ "$cursor" -gt 0 ]]; then
+                            cursor=$((cursor - 1))
+                        else
+                            cursor=$((count - 1))
+                        fi
+                        ;;
+                    "[B")
+                        if [[ "$cursor" -lt $((count - 1)) ]]; then
+                            cursor=$((cursor + 1))
+                        else
+                            cursor=0
+                        fi
+                        ;;
+                esac
+                ;;
+            k|K)
+                if [[ "$cursor" -gt 0 ]]; then
+                    cursor=$((cursor - 1))
+                else
+                    cursor=$((count - 1))
+                fi
+                ;;
+            j|J)
+                if [[ "$cursor" -lt $((count - 1)) ]]; then
+                    cursor=$((cursor + 1))
+                else
+                    cursor=0
+                fi
+                ;;
+        esac
     done
 }
 
@@ -163,12 +226,49 @@ install_system_packages() {
     fi
 }
 
+install_oh_my_zsh_official() {
+    local installer status
+
+    installer="$(mktemp)"
+
+    if command -v curl >/dev/null 2>&1; then
+        if curl -fsSL --connect-timeout 10 --max-time 60 https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh -o "$installer"; then
+            run_with_timeout 120 env CHSH=no RUNZSH=no KEEP_ZSHRC=yes sh "$installer" --unattended --keep-zshrc
+            status=$?
+            rm -f "$installer"
+            return "$status"
+        fi
+    fi
+
+    if command -v wget >/dev/null 2>&1; then
+        if wget -qO "$installer" --timeout=10 --tries=1 https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh; then
+            run_with_timeout 120 env CHSH=no RUNZSH=no KEEP_ZSHRC=yes sh "$installer" --unattended --keep-zshrc
+            status=$?
+            rm -f "$installer"
+            return "$status"
+        fi
+    fi
+
+    rm -f "$installer"
+    return 1
+}
+
 install_zsh_stack() {
     step "Installing oh-my-zsh..."
     if [[ -d "$HOME/.oh-my-zsh" ]]; then
         info "oh-my-zsh already installed"
+    elif install_oh_my_zsh_official; then
+        info "oh-my-zsh installed via official installer"
     else
-        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+        warn "Official oh-my-zsh installer failed; falling back to bounded git clone"
+        rm -rf "$HOME/.oh-my-zsh"
+        if git_clone_shallow https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh"; then
+            info "oh-my-zsh installed via git clone"
+        else
+            rm -rf "$HOME/.oh-my-zsh"
+            warn "Could not install oh-my-zsh; skipping zsh framework setup"
+            return
+        fi
     fi
 
     step "Installing powerlevel10k..."
@@ -176,7 +276,7 @@ install_zsh_stack() {
     if [[ -d "$P10K_DIR" ]]; then
         info "powerlevel10k already installed"
     elif [[ -d "$HOME/.oh-my-zsh" ]]; then
-        git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P10K_DIR"
+        git_clone_shallow https://github.com/romkatv/powerlevel10k.git "$P10K_DIR" || warn "Could not install powerlevel10k"
     fi
 
     step "Installing zsh plugins..."
@@ -184,19 +284,19 @@ install_zsh_stack() {
     mkdir -p "$PLUGIN_DIR"
 
     if [[ ! -d "$PLUGIN_DIR/zsh-autosuggestions" ]]; then
-        git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions.git "$PLUGIN_DIR/zsh-autosuggestions"
+        git_clone_shallow https://github.com/zsh-users/zsh-autosuggestions.git "$PLUGIN_DIR/zsh-autosuggestions" || warn "Could not install zsh-autosuggestions"
     else
         info "zsh-autosuggestions already installed"
     fi
 
     if [[ ! -d "$PLUGIN_DIR/zsh-syntax-highlighting" ]]; then
-        git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git "$PLUGIN_DIR/zsh-syntax-highlighting"
+        git_clone_shallow https://github.com/zsh-users/zsh-syntax-highlighting.git "$PLUGIN_DIR/zsh-syntax-highlighting" || warn "Could not install zsh-syntax-highlighting"
     else
         info "zsh-syntax-highlighting already installed"
     fi
 
     if [[ ! -d "$PLUGIN_DIR/zsh-z" ]]; then
-        git clone --depth=1 https://github.com/agkozak/zsh-z.git "$PLUGIN_DIR/zsh-z"
+        git_clone_shallow https://github.com/agkozak/zsh-z.git "$PLUGIN_DIR/zsh-z" || warn "Could not install zsh-z"
     else
         info "zsh-z already installed"
     fi
@@ -208,8 +308,47 @@ install_tpm() {
     if [[ -d "$TPM_DIR" ]]; then
         info "TPM already installed"
     else
-        git clone --depth=1 https://github.com/tmux-plugins/tpm.git "$TPM_DIR"
+        git_clone_shallow https://github.com/tmux-plugins/tpm.git "$TPM_DIR" || warn "Could not install TPM"
     fi
+}
+
+backup_root() {
+    if [[ -z "${DOTFILES_BACKUP_DIR:-}" ]]; then
+        DOTFILES_BACKUP_DIR="$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)"
+    fi
+    printf '%s' "$DOTFILES_BACKUP_DIR"
+}
+
+is_dotfiles_link() {
+    local target="$1"
+    local link_dest resolved_target
+
+    [[ -L "$target" ]] || return 1
+    link_dest="$(readlink "$target")"
+    if [[ "$link_dest" != /* ]]; then
+        link_dest="$(cd "$(dirname "$target")" && cd "$(dirname "$link_dest")" && pwd -P)/$(basename "$link_dest")"
+    fi
+    resolved_target="$(cd "$(dirname "$link_dest")" 2>/dev/null && pwd -P)/$(basename "$link_dest")"
+    [[ "$resolved_target" == "$DOTFILES/"* ]]
+}
+
+backup_stow_conflicts() {
+    local pkg="$1"
+    local source rel target backup_dir backup_path
+
+    while IFS= read -r source; do
+        rel="${source#"$DOTFILES/$pkg/"}"
+        target="$HOME/$rel"
+
+        [[ -e "$target" || -L "$target" ]] || continue
+        is_dotfiles_link "$target" && continue
+
+        backup_dir="$(backup_root)"
+        backup_path="$backup_dir/$rel"
+        mkdir -p "$(dirname "$backup_path")"
+        warn "Backing up existing $target to $backup_path"
+        mv "$target" "$backup_path"
+    done < <(find "$DOTFILES/$pkg" -type f)
 }
 
 stow_package() {
@@ -226,7 +365,8 @@ stow_package() {
     fi
 
     info "Stowing $pkg..."
-    stow -v -R -t "$HOME" "$pkg" 2>&1 || true
+    backup_stow_conflicts "$pkg"
+    stow -v -R -t "$HOME" "$pkg"
 }
 
 stow_dotfiles() {
@@ -255,7 +395,7 @@ copy_templates() {
 }
 
 configure_git() {
-    if [[ -t 0 && -x "$DOTFILES/scripts/configure-git.sh" ]]; then
+    if tty_available && [[ -x "$DOTFILES/scripts/configure-git.sh" ]]; then
         step "Configuring personal Git/GPG/GitHub auth..."
         "$DOTFILES/scripts/configure-git.sh"
     else
@@ -273,12 +413,18 @@ change_default_shell() {
 
     if [[ "${SHELL:-}" != "$ZSH_PATH" ]]; then
         if [[ "$OS_TYPE" == "macos" ]]; then
-            sudo dscl . -create "/Users/$USER" UserShell "$ZSH_PATH" 2>/dev/null ||
+            if sudo dscl . -create "/Users/$USER" UserShell "$ZSH_PATH" 2>/dev/null; then
+                info "Default shell changed to $ZSH_PATH (new terminal sessions will use zsh)"
+            else
                 warn "Could not change shell via dscl - run: chsh -s $ZSH_PATH"
+            fi
         else
-            chsh -s "$ZSH_PATH" || warn "Could not change shell - run: chsh -s $ZSH_PATH"
+            if chsh -s "$ZSH_PATH"; then
+                info "Default shell changed to $ZSH_PATH (new terminal sessions will use zsh)"
+            else
+                warn "Could not change shell - run: chsh -s $ZSH_PATH"
+            fi
         fi
-        info "Default shell changed to $ZSH_PATH (new terminal sessions will use zsh)"
     else
         info "Default shell already set to $ZSH_PATH"
     fi
@@ -335,8 +481,39 @@ if [[ "$OS_TYPE" == "linux" ]]; then
     STOW_NVIM=1
 fi
 
-if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" && -t 0 ]]; then
-    prompt_feature_selection
+if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
+    CHECKBOX_VARS=(
+        INSTALL_PACKAGES
+        INSTALL_ZSH_STACK
+        INSTALL_TMUX_STACK
+        STOW_ZSH
+        STOW_TMUX
+        STOW_GIT
+        STOW_NVIM
+        COPY_TEMPLATES
+        CONFIGURE_GIT
+        CHANGE_SHELL
+        INSTALL_TMUX_PLUGINS
+    )
+    CHECKBOX_LABELS=(
+        "Install system packages"
+        "Install oh-my-zsh, powerlevel10k, zsh plugins"
+        "Install tmux plugin manager"
+        "Stow zsh config"
+        "Stow tmux config"
+        "Stow shared git config"
+        "Stow nvim config"
+        "Create local template files"
+        "Configure personal Git/GPG/GitHub auth"
+        "Set default shell to zsh"
+        "Install tmux plugins"
+    )
+    CHECKBOX_CANCELLED=0
+    prompt_checkbox_menu "Dotfiles setup"
+    if [[ "$CHECKBOX_CANCELLED" == "1" ]]; then
+        info "Setup cancelled."
+        exit 0
+    fi
 else
     info "Non-interactive mode: using default setup selection."
 fi
