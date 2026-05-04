@@ -8,6 +8,7 @@ powerlevel10k
 reattach-to-user-namespace
 stow
 tmux
+neovim
 uv
 onllm-dev/tap/onwatch
 zsh-autosuggestions

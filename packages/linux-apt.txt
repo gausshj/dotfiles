@@ -5,6 +5,7 @@ curl
 wget
 zsh
 tmux
+neovim
 fzf
 ripgrep
 fd-find

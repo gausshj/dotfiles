@@ -648,6 +648,7 @@ echo -e "  Optional follow-up:"
 echo -e "  - Personal Git/GPG/GitHub auth: ${YELLOW}scripts/configure-git.sh${NC}"
 echo -e "  - Local overrides: ${YELLOW}~/.zshrc.local${NC}"
 echo -e "  - Machine credentials: ${YELLOW}~/.zshrc.secrets${NC}"
+echo -e "  - Reconfigure prompt after entering zsh: ${YELLOW}p10k configure${NC}"
 if [[ "$SHELL_CHANGE_STATUS" == "changed" || "$SHELL_CHANGE_STATUS" == "already" ]]; then
     echo -e "  - Open a new terminal, or run now: ${YELLOW}exec zsh${NC}"
 elif [[ "$SHELL_CHANGE_STATUS" == "failed" && -n "${ZSH_PATH:-}" ]]; then
