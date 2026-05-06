@@ -5,7 +5,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 DIM='\033[2m'
-REVERSE='\033[7m'
 NC='\033[0m'
 
 info() { echo -e "${GREEN}[INFO]${NC} $*"; }
@@ -93,27 +92,34 @@ checkbox_set_all() {
 render_checkbox_menu() {
     local title="$1"
     local cursor="$2"
-    local i var marker row
-    local width=76
-    local inner_width=72
+    local i var marker prefix label_color
 
     printf '\033[H'
-    printf '%b╭─ %-*.*s─╮%b\n' "$CYAN" "$inner_width" "$inner_width" "$title" "$NC"
-    printf '%b│%b %-*.*s %b│%b\n' "$CYAN" "$DIM" "$inner_width" "$inner_width" "Up/Down or j/k to move · Space toggles · Enter runs" "$CYAN" "$NC"
-    printf '%b│%b %-*.*s %b│%b\n' "$CYAN" "$DIM" "$inner_width" "$inner_width" "Shortcuts: a select all · n select none · q cancel" "$CYAN" "$NC"
-    printf '%b├%*s┤%b\n' "$CYAN" "$width" "" "$NC" | sed 's/ /─/g'
+    printf '%b◆%b  %s\n' "$GREEN" "$NC" "$title"
+    printf '%b│%b\n' "$DIM" "$NC"
+    printf '%b│%b  %b↑/↓%b or %bj/k%b move · %bSpace%b toggle · %bEnter%b run\n' "$DIM" "$NC" "$GREEN" "$NC" "$GREEN" "$NC" "$GREEN" "$NC" "$GREEN" "$NC"
+    printf '%b│%b  %ba%b all · %bn%b none · %bq%b cancel\n' "$DIM" "$NC" "$GREEN" "$NC" "$GREEN" "$NC" "$GREEN" "$NC"
+    printf '%b│%b\n' "$DIM" "$NC"
 
     for i in "${!CHECKBOX_VARS[@]}"; do
         var="${CHECKBOX_VARS[$i]}"
-        marker="$(mark "$var")"
-        row="  $marker  ${CHECKBOX_LABELS[$i]}"
-        if [[ "$i" -eq "$cursor" ]]; then
-            printf '%b│%b%s %-*.*s%b%b│%b\n' "$CYAN" "$REVERSE" "›" $((inner_width - 1)) $((inner_width - 1)) "$row" "$NC" "$CYAN" "$NC"
+        if enabled "$var"; then
+            marker="${GREEN}●${NC}"
         else
-            printf '%b│%b %b%-*.*s%b │%b\n' "$CYAN" "$NC" "$DIM" "$inner_width" "$inner_width" "$row" "$CYAN" "$NC"
+            marker="${DIM}○${NC}"
         fi
+
+        if [[ "$i" -eq "$cursor" ]]; then
+            prefix="${GREEN}›${NC}"
+            label_color="$NC"
+        else
+            prefix=" "
+            label_color="$DIM"
+        fi
+        printf '%b│%b  %b %b  %b%s%b\n' "$DIM" "$NC" "$prefix" "$marker" "$label_color" "${CHECKBOX_LABELS[$i]}" "$NC"
     done
-    printf '%b╰%*s╯%b\n' "$CYAN" "$width" "" "$NC" | sed 's/ /─/g'
+    printf '%b│%b\n' "$DIM" "$NC"
+    printf '%b◇%b  Press Enter to continue.\n' "$DIM" "$NC"
     printf '\033[J'
 }
 
