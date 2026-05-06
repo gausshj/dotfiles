@@ -1,4 +1,19 @@
 # ─────────────────────────────────────────────
+# Locale (must be set before powerlevel10k initializes)
+# ─────────────────────────────────────────────
+if command -v locale >/dev/null 2>&1; then
+    _dotfiles_locales="$(locale -a 2>/dev/null)"
+    if printf '%s\n' "$_dotfiles_locales" | grep -Eqi '^en_US\.(UTF-8|utf8)$'; then
+        export LANG=en_US.UTF-8
+        export LC_ALL=en_US.UTF-8
+    elif printf '%s\n' "$_dotfiles_locales" | grep -Eqi '^C\.(UTF-8|utf8)$'; then
+        export LANG=C.UTF-8
+        export LC_ALL=C.UTF-8
+    fi
+    unset _dotfiles_locales
+fi
+
+# ─────────────────────────────────────────────
 # Enable Powerlevel10k instant prompt
 # ─────────────────────────────────────────────
 if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
@@ -32,21 +47,6 @@ plugins=(
 )
 
 source $ZSH/oh-my-zsh.sh
-
-# ─────────────────────────────────────────────
-# Locale
-# ─────────────────────────────────────────────
-if command -v locale >/dev/null 2>&1; then
-    _dotfiles_locales="$(locale -a 2>/dev/null)"
-    if printf '%s\n' "$_dotfiles_locales" | grep -Eqi '^en_US\.(UTF-8|utf8)$'; then
-        export LANG=en_US.UTF-8
-        export LC_ALL=en_US.UTF-8
-    elif printf '%s\n' "$_dotfiles_locales" | grep -Eqi '^C\.(UTF-8|utf8)$'; then
-        export LANG=C.UTF-8
-        export LC_ALL=C.UTF-8
-    fi
-    unset _dotfiles_locales
-fi
 
 # ─────────────────────────────────────────────
 # Editor
