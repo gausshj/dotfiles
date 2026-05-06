@@ -96,7 +96,6 @@ render_checkbox_menu() {
     local cursor="$2"
     local i var marker prefix label_color
 
-    printf '\033[H'
     printf '%b◆%b  %s\n' "$GREEN" "$NC" "$title"
     printf '%b│%b\n' "$DIM" "$NC"
     printf '%b│%b  %b↑/↓%b or %bj/k%b move · %bSpace%b toggle · %bEnter%b run\n' "$DIM" "$NC" "$GREEN" "$NC" "$GREEN" "$NC" "$GREEN" "$NC" "$GREEN" "$NC"
@@ -128,12 +127,17 @@ render_checkbox_menu() {
 prompt_checkbox_menu() {
     local title="$1"
     local cursor=0
-    local count key rest current
+    local count key rest current menu_lines=0 rendered=0
 
-    printf '\033[?25l\033[H\033[J'
+    printf '\033[?25l'
     while true; do
         count="${#CHECKBOX_VARS[@]}"
+        if [[ "$rendered" == "1" ]]; then
+            printf '\033[%dA\033[J' "$menu_lines"
+        fi
         render_checkbox_menu "$title" "$cursor"
+        menu_lines=$((count + 7))
+        rendered=1
 
         read_key key || break
         case "$key" in
