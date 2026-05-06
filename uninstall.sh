@@ -130,7 +130,7 @@ prompt_checkbox_menu() {
     local cursor=0
     local count key rest current
 
-    printf '\033[?1049h\033[?25l\033[H\033[J'
+    printf '\033[?25l\033[H\033[J'
     while true; do
         count="${#CHECKBOX_VARS[@]}"
         render_checkbox_menu "$title" "$cursor"
@@ -191,7 +191,7 @@ prompt_checkbox_menu() {
                 ;;
         esac
     done
-    printf '\033[?25h\033[?1049l'
+    printf '\033[?25h'
 }
 
 remove_package_copies() {
