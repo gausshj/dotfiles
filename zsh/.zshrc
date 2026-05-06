@@ -1,6 +1,16 @@
 # ─────────────────────────────────────────────
-# Locale (must be set before powerlevel10k initializes)
+# Terminal and locale (must be set before powerlevel10k initializes)
 # ─────────────────────────────────────────────
+if [[ -z "${TERM:-}" || "$TERM" == "dumb" ]]; then
+    export TERM=xterm-256color
+fi
+
+case "${TERM:-}" in
+    *-256color)
+        export COLORTERM="${COLORTERM:-truecolor}"
+        ;;
+esac
+
 if command -v locale >/dev/null 2>&1; then
     _dotfiles_locales="$(locale -a 2>/dev/null)"
     if printf '%s\n' "$_dotfiles_locales" | grep -Eqi '^en_US\.(UTF-8|utf8)$'; then
