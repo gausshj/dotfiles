@@ -9,6 +9,7 @@ reattach-to-user-namespace
 stow
 tmux
 neovim
+unzip
 uv
 onllm-dev/tap/onwatch
 zsh-autosuggestions

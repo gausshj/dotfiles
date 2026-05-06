@@ -1,0 +1,78 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - codex/bootstrap-dotfiles
+
+jobs:
+  shell-and-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Shell syntax
+        run: |
+          bash -n bootstrap.sh
+          bash -n uninstall.sh
+          bash -n install.sh
+          bash -n scripts/configure-git.sh
+
+      - name: Docker install/uninstall smoke test
+        run: |
+          docker run --rm --platform linux/amd64 -v "$PWD":/dotfiles:ro -w /dotfiles ubuntu:24.04 bash -lc '
+            set -euo pipefail
+            export DEBIAN_FRONTEND=noninteractive
+
+            sed -i \
+              -e "s|http://archive.ubuntu.com/ubuntu|http://mirrors.kernel.org/ubuntu|g" \
+              -e "s|http://security.ubuntu.com/ubuntu|http://mirrors.kernel.org/ubuntu|g" \
+              /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
+            apt-get -o Acquire::Retries=3 update
+            apt-get -o Acquire::Retries=5 install -y stow tmux
+            ln -sf /bin/bash /usr/bin/zsh
+
+            mkdir -p /tmp/home-stow /tmp/home-copy
+
+            HOME=/tmp/home-stow \
+            DOTFILES_NO_PROMPT=1 \
+            DOTFILES_INSTALL_PACKAGES=0 \
+            DOTFILES_INSTALL_ZSH_STACK=0 \
+            DOTFILES_INSTALL_TMUX_STACK=0 \
+            DOTFILES_COPY_TEMPLATES=1 \
+            DOTFILES_CONFIGURE_GIT=0 \
+            DOTFILES_CHANGE_SHELL=0 \
+            DOTFILES_INSTALL_TMUX_PLUGINS=0 \
+            ./bootstrap.sh
+
+            test -L /tmp/home-stow/.zshrc
+            test -L /tmp/home-stow/.tmux.conf
+            test -L /tmp/home-stow/.config/nvim
+
+            HOME=/tmp/home-stow DOTFILES_NO_PROMPT=1 ./uninstall.sh
+            test ! -e /tmp/home-stow/.zshrc
+
+            HOME=/tmp/home-copy \
+            DOTFILES_NO_PROMPT=1 \
+            DOTFILES_INSTALL_PACKAGES=0 \
+            DOTFILES_INSTALL_ZSH_STACK=0 \
+            DOTFILES_INSTALL_TMUX_STACK=0 \
+            DOTFILES_USE_SYMLINKS=0 \
+            DOTFILES_COPY_TEMPLATES=0 \
+            DOTFILES_CONFIGURE_GIT=0 \
+            DOTFILES_CHANGE_SHELL=0 \
+            DOTFILES_INSTALL_TMUX_PLUGINS=0 \
+            ./bootstrap.sh
+
+            test -f /tmp/home-copy/.zshrc
+            test ! -L /tmp/home-copy/.zshrc
+
+            HOME=/tmp/home-copy DOTFILES_NO_PROMPT=1 ./uninstall.sh
+            test ! -e /tmp/home-copy/.zshrc
+
+            tmux -S /tmp/dotfiles-test.sock -f tmux/.tmux.conf new-session -d -s dotfiles-test
+            tmux -S /tmp/dotfiles-test.sock kill-server
+          '

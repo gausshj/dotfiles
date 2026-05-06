@@ -3,6 +3,7 @@ stow
 git
 curl
 wget
+unzip
 zsh
 tmux
 neovim

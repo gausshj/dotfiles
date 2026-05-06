@@ -81,7 +81,7 @@ System packages are listed in plain text under `packages/`:
 | `packages/macos-brews.txt` | Homebrew formulae |
 | `packages/macos-casks.txt` | Homebrew casks |
 
-The checked-in p10k file is used by default. After entering zsh, run `p10k configure` if the prompt looks wrong or the terminal font is missing icons.
+The checked-in `zsh/.p10k.zsh` file is deployed as the default prompt configuration.
 
 On a personal development machine, optionally configure Git identity, commit signing, and `GH_TOKEN`:
 
