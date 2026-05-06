@@ -4,6 +4,8 @@ set -euo pipefail
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
+DIM='\033[2m'
+REVERSE='\033[7m'
 NC='\033[0m'
 
 info() { echo -e "${GREEN}[INFO]${NC} $*"; }
@@ -40,9 +42,9 @@ enabled() {
 
 mark() {
     if enabled "$1"; then
-        printf '[x]'
+        printf '●'
     else
-        printf '[ ]'
+        printf '○'
     fi
 }
 
@@ -61,6 +63,26 @@ toggle() {
     fi
 }
 
+is_dotfiles_managed_path() {
+    local target="$1"
+    local link_dest resolved_target resolved_dir resolved_path
+
+    [[ -e "$target" || -L "$target" ]] || return 1
+
+    if [[ -L "$target" ]]; then
+        link_dest="$(readlink "$target")"
+        if [[ "$link_dest" != /* ]]; then
+            link_dest="$(cd "$(dirname "$target")" && cd "$(dirname "$link_dest")" && pwd -P)/$(basename "$link_dest")"
+        fi
+        resolved_target="$(cd "$(dirname "$link_dest")" 2>/dev/null && pwd -P)/$(basename "$link_dest")"
+        [[ "$resolved_target" == "$DOTFILES/"* ]] && return 0
+    fi
+
+    resolved_dir="$(cd "$(dirname "$target")" 2>/dev/null && pwd -P)" || return 1
+    resolved_path="$resolved_dir/$(basename "$target")"
+    [[ "$resolved_path" == "$DOTFILES/"* ]]
+}
+
 checkbox_set_all() {
     local value="$1"
     local var
@@ -73,23 +95,27 @@ checkbox_set_all() {
 render_checkbox_menu() {
     local title="$1"
     local cursor="$2"
-    local i var prefix marker
+    local i var marker row
+    local width=76
+    local inner_width=72
 
     printf '\033[H'
-    printf '%s\n\n' "$title"
-    printf 'Use Up/Down to move, Space to toggle, Enter to continue.\n'
-    printf 'Shortcuts: a = all, n = none, q = cancel.\n\n'
+    printf '%b╭─ %-*.*s─╮%b\n' "$CYAN" "$inner_width" "$inner_width" "$title" "$NC"
+    printf '%b│%b %-*.*s %b│%b\n' "$CYAN" "$DIM" "$inner_width" "$inner_width" "Up/Down or j/k to move · Space toggles · Enter runs" "$CYAN" "$NC"
+    printf '%b│%b %-*.*s %b│%b\n' "$CYAN" "$DIM" "$inner_width" "$inner_width" "Shortcuts: a select all · n select none · q cancel" "$CYAN" "$NC"
+    printf '%b├%*s┤%b\n' "$CYAN" "$width" "" "$NC" | sed 's/ /─/g'
 
     for i in "${!CHECKBOX_VARS[@]}"; do
         var="${CHECKBOX_VARS[$i]}"
-        if [[ "$i" -eq "$cursor" ]]; then
-            prefix=">"
-        else
-            prefix=" "
-        fi
         marker="$(mark "$var")"
-        printf ' %s %s %s\n' "$prefix" "$marker" "${CHECKBOX_LABELS[$i]}"
+        row="  $marker  ${CHECKBOX_LABELS[$i]}"
+        if [[ "$i" -eq "$cursor" ]]; then
+            printf '%b│%b%s %-*.*s%b%b│%b\n' "$CYAN" "$REVERSE" "›" $((inner_width - 1)) $((inner_width - 1)) "$row" "$NC" "$CYAN" "$NC"
+        else
+            printf '%b│%b %b%-*.*s%b │%b\n' "$CYAN" "$NC" "$DIM" "$inner_width" "$inner_width" "$row" "$CYAN" "$NC"
+        fi
     done
+    printf '%b╰%*s╯%b\n' "$CYAN" "$width" "" "$NC" | sed 's/ /─/g'
     printf '\033[J'
 }
 
@@ -176,6 +202,7 @@ remove_package_copies() {
         target="$HOME/$rel"
 
         [[ -f "$target" && ! -L "$target" ]] || continue
+        is_dotfiles_managed_path "$target" && continue
         if cmp -s "$source" "$target"; then
             rm -f "$target"
             info "Removed copied $target"
