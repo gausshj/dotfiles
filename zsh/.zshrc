@@ -5,6 +5,23 @@ if [[ -z "${TERM:-}" || "$TERM" == "dumb" ]]; then
     export TERM=xterm-256color
 fi
 
+if command -v tput >/dev/null 2>&1; then
+    _dotfiles_term_colors="$(tput colors 2>/dev/null || printf '0')"
+    if [[ "${_dotfiles_term_colors:-0}" -lt 256 ]]; then
+        case "${TERM:-}" in
+            xterm) export TERM=xterm-256color ;;
+            screen) export TERM=screen-256color ;;
+            tmux) export TERM=tmux-256color ;;
+            *)
+                if [[ -f /.dockerenv || -n "${container:-}" || -n "${SSH_TTY:-}" ]]; then
+                    export TERM=xterm-256color
+                fi
+                ;;
+        esac
+    fi
+    unset _dotfiles_term_colors
+fi
+
 case "${TERM:-}" in
     *-256color)
         export COLORTERM="${COLORTERM:-truecolor}"
