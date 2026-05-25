@@ -567,6 +567,63 @@ install_tmux_plugins() {
     fi
 }
 
+install_vim_plug() {
+    local plug_path plug_url
+    local installed=1
+
+    plug_path="${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/autoload/plug.vim"
+    plug_url="https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim"
+
+    if [[ -f "$plug_path" ]]; then
+        info "vim-plug already installed"
+        return 0
+    fi
+
+    step "Installing vim-plug for Neovim..."
+    mkdir -p "$(dirname "$plug_path")"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --connect-timeout 10 --max-time 120 "$plug_url" -o "$plug_path" && installed=0
+    fi
+    if [[ "$installed" != "0" && -f "$plug_path" ]]; then
+        rm -f "$plug_path"
+    fi
+    if [[ "$installed" != "0" ]] && command -v wget >/dev/null 2>&1; then
+        wget -qO "$plug_path" --timeout=20 --tries=2 "$plug_url" && installed=0
+    fi
+
+    if [[ "$installed" != "0" ]]; then
+        rm -f "$plug_path"
+        warn "Could not download vim-plug; run nvim +PlugInstall after network access works"
+        return 1
+    fi
+
+    return 0
+}
+
+install_nvim_plugins() {
+    if ! enabled DEPLOY_NVIM; then
+        info "nvim config was not selected; skipping nvim plugins"
+        return
+    fi
+
+    if ! command -v nvim >/dev/null 2>&1; then
+        warn "nvim is not installed; skipping nvim plugins"
+        return
+    fi
+
+    if ! install_vim_plug; then
+        warn "Skipping Neovim plugin installation"
+        return
+    fi
+
+    step "Installing Neovim plugins..."
+    if run_with_timeout 600 nvim --headless --noplugin '+PlugInstall --sync' '+PlugUpdate --sync' '+PlugClean!' '+qall'; then
+        info "Neovim plugins installed"
+    else
+        warn "Neovim plugin installation failed; open nvim and run :PlugInstall to retry"
+    fi
+}
+
 # ------------------------------------------------------------------
 # Platform detection
 # ------------------------------------------------------------------
@@ -603,10 +660,14 @@ COPY_TEMPLATES="${DOTFILES_COPY_TEMPLATES:-1}"
 CONFIGURE_GIT="${DOTFILES_CONFIGURE_GIT:-0}"
 CHANGE_SHELL="${DOTFILES_CHANGE_SHELL:-1}"
 INSTALL_TMUX_PLUGINS="${DOTFILES_INSTALL_TMUX_PLUGINS:-1}"
+INSTALL_NVIM_PLUGINS="${DOTFILES_INSTALL_NVIM_PLUGINS:-}"
 SHELL_CHANGE_STATUS="not_requested"
 
 if [[ "$OS_TYPE" == "linux" && -z "${DOTFILES_DEPLOY_NVIM:-}" ]]; then
     DEPLOY_NVIM=1
+fi
+if [[ -z "$INSTALL_NVIM_PLUGINS" ]]; then
+    INSTALL_NVIM_PLUGINS="$DEPLOY_NVIM"
 fi
 
 if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
@@ -623,6 +684,7 @@ if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
         CONFIGURE_GIT
         CHANGE_SHELL
         INSTALL_TMUX_PLUGINS
+        INSTALL_NVIM_PLUGINS
     )
     CHECKBOX_LABELS=(
         "Install system packages"
@@ -637,6 +699,7 @@ if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
         "Configure personal Git/GPG/GitHub auth"
         "Set default shell to zsh"
         "Install tmux plugins"
+        "Install nvim plugin manager and plugins"
     )
     CHECKBOX_CANCELLED=0
     prompt_checkbox_menu "Dotfiles setup"
@@ -659,6 +722,7 @@ enabled COPY_TEMPLATES && copy_templates
 enabled CONFIGURE_GIT && configure_git
 enabled CHANGE_SHELL && change_default_shell
 enabled INSTALL_TMUX_PLUGINS && install_tmux_plugins
+enabled INSTALL_NVIM_PLUGINS && install_nvim_plugins
 
 # ------------------------------------------------------------------
 # Final instructions
@@ -671,6 +735,9 @@ echo -e "  Optional follow-up:"
 echo -e "  - Personal Git/GPG/GitHub auth: ${YELLOW}scripts/configure-git.sh${NC}"
 echo -e "  - Local overrides: ${YELLOW}~/.zshrc.local${NC}"
 echo -e "  - Machine credentials: ${YELLOW}~/.zshrc.secrets${NC}"
+if enabled DEPLOY_NVIM; then
+    echo -e "  - Neovim plugins: ${YELLOW}nvim +PlugInstall${NC}"
+fi
 if [[ "$SHELL_CHANGE_STATUS" == "changed" || "$SHELL_CHANGE_STATUS" == "already" ]]; then
     echo -e "  - Open a new terminal, or run now: ${YELLOW}exec zsh${NC}"
 elif [[ "$SHELL_CHANGE_STATUS" == "failed" && -n "${ZSH_PATH:-}" ]]; then

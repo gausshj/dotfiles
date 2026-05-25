@@ -24,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/gausshj/dotfiles/main/install.sh | 
 | `git/` | shared `.gitconfig`; identity/signing live in `~/.gitconfig.local` |
 | `packages/` | package manifests used by `bootstrap.sh` |
 | `Brewfile` | macOS-only: manual `brew bundle` alternative |
-| `scripts/` | optional local setup helpers |
+| `scripts/` | optional local setup and manual test helpers |
 
 ## Structure
 
@@ -36,14 +36,16 @@ curl -fsSL https://raw.githubusercontent.com/gausshj/dotfiles/main/install.sh | 
 ├── Brewfile             # macOS Homebrew packages
 ├── packages/            # Package manifests used by bootstrap.sh
 ├── scripts/
-│   └── configure-git.sh # Optional personal Git/GPG/GitHub setup
+│   ├── configure-git.sh      # Optional personal Git/GPG/GitHub setup
+│   └── manual-test-docker.sh # Human install test container
 ├── zsh/
 │   ├── .zshrc           # Main zsh config
 │   └── .p10k.zsh        # powerlevel10k theme
 ├── tmux/
 │   ├── .tmux.conf       # Main tmux config (macOS + Linux unified)
 │   └── .config/tmux/scripts/
-│       └── pane_switcher.sh
+│       ├── pane_switcher.sh
+│       └── status_info.sh
 ├── nvim/.config/nvim/
 │   └── init.vim         # Neovim/Vim init (Linux primary)
 ├── git/
@@ -108,6 +110,13 @@ Non-interactive defaults can be overridden with `DOTFILES_*` flags, for example:
 DOTFILES_NO_PROMPT=1 DOTFILES_USE_SYMLINKS=0 DOTFILES_CHANGE_SHELL=0 ./bootstrap.sh
 ```
 
+`install.sh` also accepts a branch for testing PRs before merge:
+
+```bash
+DOTFILES_BRANCH=codex/nvim-status-manual-tests \
+  curl -fsSL https://github.com/gausshj/dotfiles/raw/codex/nvim-status-manual-tests/install.sh | bash
+```
+
 ## macOS Only
 
 ```bash
@@ -119,6 +128,28 @@ brew bundle --file=~/.dotfiles/Brewfile
 ```bash
 stow -t ~ nvim
 ```
+
+`bootstrap.sh` installs `vim-plug` for Neovim, installs/updates pinned plugins, and removes plugins that are no longer listed when the nvim config is selected. To retry plugin installation manually:
+
+```bash
+nvim '+PlugInstall --sync' '+PlugUpdate --sync' '+PlugClean!' +qall
+```
+
+Disable this step during automated runs with:
+
+```bash
+DOTFILES_INSTALL_NVIM_PLUGINS=0 ./bootstrap.sh
+```
+
+## Manual Install Test
+
+For a human pass through the interactive installer:
+
+```bash
+scripts/manual-test-docker.sh --branch codex/nvim-status-manual-tests
+```
+
+See `docs/manual-test.md` for proxy usage and post-install checks.
 
 ## Updating
 

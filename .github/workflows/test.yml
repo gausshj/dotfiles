@@ -20,6 +20,8 @@ jobs:
           bash -n uninstall.sh
           bash -n install.sh
           bash -n scripts/configure-git.sh
+          bash -n scripts/manual-test-docker.sh
+          bash -n tmux/.config/tmux/scripts/status_info.sh
 
       - name: Docker install/uninstall smoke test
         run: |
@@ -69,6 +71,8 @@ jobs:
 
             test -f /tmp/home-copy/.zshrc
             test ! -L /tmp/home-copy/.zshrc
+            HOME=/tmp/home-copy bash tmux/.config/tmux/scripts/status_info.sh >/tmp/tmux-status.txt
+            test -s /tmp/tmux-status.txt
 
             HOME=/tmp/home-copy DOTFILES_NO_PROMPT=1 ./uninstall.sh
             test ! -e /tmp/home-copy/.zshrc
