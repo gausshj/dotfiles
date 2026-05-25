@@ -13,83 +13,101 @@ set background=dark
 
 filetype plugin indent on
 
-call plug#begin('~/.vim/plugged')
+let s:plug_path = stdpath('data') . '/site/autoload/plug.vim'
+if filereadable(s:plug_path)
+  call plug#begin('~/.vim/plugged')
 
-Plug 'sheerun/vim-polyglot'
-Plug 'neoclide/coc.nvim', {'branch': 'release'}
-Plug 'preservim/nerdtree'
-Plug 'junegunn/fzf', { 'do': { -> fzf#install() } }
-Plug 'junegunn/fzf.vim'
-Plug 'jiangmiao/auto-pairs'
-Plug 'tpope/vim-fugitive'
-Plug 'morhetz/gruvbox'
-Plug 'vim-airline/vim-airline'
-Plug 'lukas-reineke/indent-blankline.nvim'
-Plug 'nvim-lua/plenary.nvim'
-Plug 'nvim-telescope/telescope.nvim'
-Plug 'williamboman/mason.nvim'
-Plug 'williamboman/mason-lspconfig.nvim'
-Plug 'neovim/nvim-lspconfig'
-Plug 'nvim-treesitter/nvim-treesitter', {'do': ':TSUpdate'}
-Plug 'stevearc/conform.nvim'
-Plug 'romgrk/barbar.nvim'
-Plug 'nvim-tree/nvim-web-devicons'
-Plug 'petertriho/nvim-scrollbar'
+  Plug 'sheerun/vim-polyglot'
+  Plug 'preservim/nerdtree'
+  Plug 'junegunn/fzf', { 'do': { -> fzf#install() } }
+  Plug 'junegunn/fzf.vim'
+  Plug 'jiangmiao/auto-pairs'
+  Plug 'tpope/vim-fugitive'
+  Plug 'morhetz/gruvbox'
+  Plug 'vim-airline/vim-airline'
+  Plug 'lukas-reineke/indent-blankline.nvim'
+  Plug 'nvim-lua/plenary.nvim'
+  Plug 'nvim-telescope/telescope.nvim', { 'tag': '0.1.8' }
+  Plug 'williamboman/mason.nvim'
+  Plug 'williamboman/mason-lspconfig.nvim'
+  Plug 'neovim/nvim-lspconfig', { 'tag': 'v1.8.0' }
+  Plug 'nvim-treesitter/nvim-treesitter', {'do': ':TSUpdate'}
+  Plug 'romgrk/barbar.nvim'
+  Plug 'nvim-tree/nvim-web-devicons'
+  Plug 'petertriho/nvim-scrollbar'
 
-call plug#end()
+  call plug#end()
+else
+  echohl WarningMsg
+  echom 'vim-plug is not installed. Run ~/.dotfiles/bootstrap.sh or install plug.vim, then run :PlugInstall.'
+  echohl None
+endif
 
 if filereadable(expand("~/.vim/plugged/gruvbox/colors/gruvbox.vim"))
   colorscheme gruvbox
 endif
 
 lua << EOF
-require("ibl").setup {
+local ok, ibl = pcall(require, "ibl")
+if ok then
+ibl.setup {
   indent = { char = "│" },
   scope = { enabled = true },
 }
+end
 EOF
 
 lua << EOF
-require("nvim-treesitter.configs").setup {
+local ok, treesitter = pcall(require, "nvim-treesitter.configs")
+if ok then
+treesitter.setup {
   ensure_installed = { "python", "cpp", "c", "bash", "json", "lua", "vim" },
   highlight = {
     enable = true,
     additional_vim_regex_highlighting = false,
   },
 }
+end
 EOF
 
 lua << EOF
-require("mason").setup()
-require("mason-lspconfig").setup {
-  ensure_installed = { "pyright", "clangd" }
-}
-local lspconfig = require("lspconfig")
+local ok_mason, mason = pcall(require, "mason")
+local ok_mason_lsp, mason_lspconfig = pcall(require, "mason-lspconfig")
+local ok_lsp, lspconfig = pcall(require, "lspconfig")
+if ok_mason then
+mason.setup()
+end
+if ok_mason_lsp then
+mason_lspconfig.setup({})
+end
+if ok_lsp then
+if vim.fn.executable("pyright-langserver") == 1 then
 lspconfig.pyright.setup({})
+end
+if vim.fn.executable("clangd") == 1 then
 lspconfig.clangd.setup({})
-EOF
-
-lua << EOF
-require("conform").setup({
-  format_on_save = {
-    timeout_ms = 500,
-    lsp_fallback = true,
-  },
-})
+end
+end
 EOF
 
 lua << EOF
 vim.g.barbar_auto_setup = false
-require("barbar").setup({
+local ok, barbar = pcall(require, "barbar")
+if ok then
+barbar.setup({
   animation = true,
   auto_hide = false,
   tabpages = true,
   clickable = true,
 })
+end
 EOF
 
 lua << EOF
-require("scrollbar").setup()
+local ok, scrollbar = pcall(require, "scrollbar")
+if ok then
+scrollbar.setup()
+end
 EOF
 
 

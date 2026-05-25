@@ -19,3 +19,6 @@ id_ed25519*
 # macOS
 .DS_Store
 **/.DS_Store
+
+# Local run transcripts
+sessions/
