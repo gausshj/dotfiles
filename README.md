@@ -110,6 +110,18 @@ Non-interactive defaults can be overridden with `DOTFILES_*` flags, for example:
 DOTFILES_NO_PROMPT=1 DOTFILES_USE_SYMLINKS=0 DOTFILES_CHANGE_SHELL=0 ./bootstrap.sh
 ```
 
+Timezone configuration is optional and off by default. If selected in the interactive menu, the first choice keeps the current system timezone. Common choices are grouped behind readable labels:
+
+- `China - Beijing Time (Asia/Shanghai)` is available as a direct common choice.
+- `United States` timezones are shown as Eastern, Central, Mountain, and Pacific.
+- `Browse/search all timezones...` supports searching, browsing by region, or manually entering an IANA timezone.
+
+For non-interactive timezone setup:
+
+```bash
+DOTFILES_NO_PROMPT=1 DOTFILES_CONFIGURE_TIMEZONE=1 DOTFILES_TIMEZONE=Asia/Shanghai ./bootstrap.sh
+```
+
 `install.sh` also accepts a branch for testing PRs before merge:
 
 ```bash
