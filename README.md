@@ -113,9 +113,21 @@ DOTFILES_NO_PROMPT=1 DOTFILES_USE_SYMLINKS=0 DOTFILES_CHANGE_SHELL=0 ./bootstrap
 `install.sh` also accepts a branch for testing PRs before merge:
 
 ```bash
-DOTFILES_BRANCH=codex/nvim-status-manual-tests \
-  curl -fsSL https://github.com/gausshj/dotfiles/raw/codex/nvim-status-manual-tests/install.sh | bash
+DOTFILES_BRANCH=your-branch-name \
+  curl -fsSL https://github.com/gausshj/dotfiles/raw/your-branch-name/install.sh | bash
 ```
+
+## Re-running the Installer
+
+The installer is designed to be re-run.
+
+- Existing package managers handle already-installed packages: Homebrew entries are checked with `brew list`, and apt receives the full package list through `apt install -y`, which keeps installed packages instead of duplicating them.
+- Existing framework/plugin directories are reused: oh-my-zsh, powerlevel10k, zsh plugins, TPM, and vim-plug are skipped when their directories or files already exist.
+- Existing dotfile links are refreshed with `stow -R`; copied-file mode overwrites the selected copied files from the repository.
+- Local template files such as `~/.zshrc.local`, `~/.zshrc.secrets`, and `~/.gitconfig.local` are created only if missing.
+- The one-line `curl` install clones into `~/.dotfiles` on the first run. Later runs pull the latest checkout with `git pull --rebase --autostash`, then run `bootstrap.sh` again.
+
+On an existing machine, re-running the curl command updates selected managed configs such as tmux when they are enabled in the setup menu. Disable a deploy option in the menu if you do not want that config refreshed on that run.
 
 ## macOS Only
 
@@ -146,10 +158,10 @@ DOTFILES_INSTALL_NVIM_PLUGINS=0 ./bootstrap.sh
 For a human pass through the interactive installer:
 
 ```bash
-scripts/manual-test-docker.sh --branch codex/nvim-status-manual-tests
+scripts/manual-test-docker.sh --branch your-branch-name
 ```
 
-See `docs/manual-test.md` for proxy usage and post-install checks.
+The container prints login details and test commands on startup. Inside it, run `test-local` to test the mounted working tree or `test-curl` to test the pushed branch. See `docs/manual-test.md` for proxy usage and post-install checks.
 
 ## Updating
 
