@@ -5,28 +5,49 @@ This repository has CI smoke tests, but the interactive installer still needs a 
 Run this from the repository root:
 
 ```bash
-scripts/manual-test-docker.sh --branch codex/nvim-status-manual-tests
+scripts/manual-test-docker.sh --branch your-branch-name
 ```
 
 If the network needs a proxy:
 
 ```bash
 scripts/manual-test-docker.sh \
-  --branch codex/nvim-status-manual-tests \
+  --branch your-branch-name \
   --proxy http://host.docker.internal:7890
 ```
 
-The script builds a reusable local Ubuntu image with only the prerequisites needed to fetch the repo: `sudo`, `curl`, `git`, `ca-certificates`, and locale support. It then opens an interactive shell as a normal user named `gauss`.
+The script builds a reusable local Ubuntu image with only the prerequisites needed to fetch the repo: `sudo`, `curl`, `git`, `ca-certificates`, and locale support. It then opens an interactive shell as a normal user named `gausshj`.
+
+The container uses the test environment timezone by default. You can override it explicitly:
+
+```bash
+scripts/manual-test-docker.sh \
+  --branch your-branch-name \
+  --timezone Asia/Shanghai
+```
+
+The container prints login details on startup:
+
+```text
+user: gausshj
+password: gausshj
+sudo does not ask for a password in this test container
+timezone: inherited from the test environment, or the value passed to --timezone
+```
+
+The test container sets `DEBIAN_FRONTEND=noninteractive` and `TZ` so package installs do not stop at the system `tzdata` geographic-area prompt.
 
 Inside the container, use one of these flows:
 
 ```bash
 # Test the exact working tree mounted from your machine.
-cd /workspace/dotfiles && ./bootstrap.sh
+test-local
 
 # Test the public curl flow for a pushed branch.
-curl -fsSL https://github.com/gausshj/dotfiles/raw/${DOTFILES_BRANCH}/install.sh | bash
+test-curl
 ```
+
+The container prints these commands automatically on shell startup. Run `dotfiles-test-help` to show them again.
 
 Useful checks after install:
 
