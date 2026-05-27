@@ -6,7 +6,7 @@ segment() {
     local text="$2"
 
     [[ -n "$text" ]] || return
-    printf '#[fg=%s]%s ' "$color" "$text"
+    printf '#[fg=%s]%s' "$color" "$text"
 }
 
 linux_cpu() {
@@ -65,42 +65,238 @@ linux_gpu() {
     printf 'GPU:%s%% %s/%sMiB' "$gpu_util" "$gpu_used" "$gpu_total"
 }
 
-disk_home() {
-    df -h "$HOME" 2>/dev/null | awk 'NR == 2 {print "Disk:" $5 " " $4 " free"; exit}'
+linux_net() {
+    local iface stats
+
+    iface="$(ip -o -4 route show to default 2>/dev/null | awk '{print $5; exit}')"
+    [[ -n "$iface" ]] || return
+    command -v ifstat >/dev/null 2>&1 || return
+
+    stats="$(ifstat -i "$iface" 0.1 1 2>/dev/null | tail -n 1 | awk '{printf "Net:Up %.1fKB/s Down %.1fKB/s", $2, $1}')"
+    [[ -n "$stats" ]] || return
+    printf '%s' "$stats"
+}
+
+linux_disks() {
+    df -h -P 2>/dev/null | awk '
+        NR > 1 && $1 ~ "^/dev/" {
+            size = $2
+            target = $6
+
+            if (target ~ "^/(boot|snap|var/lib/docker|run|dev|proc|sys)(/|$)") next
+            if (size ~ /K$/ || size ~ /M$/) next
+
+            used = $5
+            sub("%", "", used)
+            if (used == "") next
+
+            label = target
+            if (label == "/") label = "root"
+            sub("^/home/[^/]+/", "", label)
+            sub("^/mnt/", "", label)
+            sub("^/media/[^/]+/", "", label)
+
+            if (out != "") out = out " "
+            out = out label ":" $5
+        }
+        END {
+            if (out != "") print "Disk:" out
+        }
+    '
+}
+
+macos_disks() {
+    df -H -P 2>/dev/null | awk '
+        NR > 1 && ($1 ~ "^/dev/" || $6 ~ "^/Volumes/") {
+            target = $6
+            if (target ~ "^/System/Volumes/(VM|Preboot|Update|xarts|iSCPreboot|Hardware)") next
+            if (target ~ "^/private/var/") next
+
+            label = target
+            if (label == "/") label = "root"
+            sub("^/System/Volumes/Data$", "data", label)
+            sub("^/Volumes/", "", label)
+
+            if (seen[label]++) next
+            if (out != "") out = out " "
+            out = out label ":" $5
+        }
+        END {
+            if (out != "") print "Disk:" out
+        }
+    '
 }
 
 main() {
-    local os cpu mem gpu disk now host
+    local os cpu mem gpu net disk now host
+    local density
+    local budget
+    local required_width
+    local optional_width=0
+    local selected_cpu="" selected_mem="" selected_gpu="" selected_net="" selected_disk=""
+    local first=1
+    local default_budget
+
+    density="${TMUX_STATUS_DENSITY:-$(tmux show-option -gqv @tmux_status_density 2>/dev/null || printf 'compact')}"
+    case "$density" in
+        full | medium | compact)
+            ;;
+        off)
+            return
+            ;;
+        *)
+            density="compact"
+            ;;
+    esac
+
+    budget="${TMUX_STATUS_BUDGET:-$(tmux show-option -gqv @tmux_status_right_budget 2>/dev/null || true)}"
+    case "$density" in
+        full)
+            default_budget=64
+            ;;
+        medium)
+            default_budget=38
+            ;;
+        compact)
+            default_budget=24
+            ;;
+    esac
+    [[ "$budget" =~ ^[0-9]+$ ]] || budget="$default_budget"
 
     os="$(uname -s)"
     case "$os" in
         Darwin)
-            cpu="$(macos_cpu)"
-            mem="$(macos_mem)"
+            if [[ "$density" == "full" ]]; then
+                cpu="$(macos_cpu)"
+                mem="$(macos_mem)"
+            else
+                cpu=""
+                mem=""
+            fi
             gpu=""
+            net=""
+            if [[ "$density" == "full" || "$density" == "medium" ]]; then
+                disk="$(macos_disks)"
+            else
+                disk=""
+            fi
             ;;
         Linux)
-            cpu="$(linux_cpu)"
-            mem="$(linux_mem)"
-            gpu="$(linux_gpu)"
+            if [[ "$density" == "full" ]]; then
+                cpu="$(linux_cpu)"
+                mem="$(linux_mem)"
+                gpu="$(linux_gpu)"
+                net="$(linux_net)"
+            else
+                cpu=""
+                mem=""
+                gpu=""
+                net=""
+            fi
+            if [[ "$density" == "full" || "$density" == "medium" ]]; then
+                disk="$(linux_disks)"
+            else
+                disk=""
+            fi
             ;;
         *)
             cpu=""
             mem=""
             gpu=""
+            net=""
+            disk=""
             ;;
     esac
 
-    disk="$(disk_home)"
-    now="$(date '+%Y-%m-%d %H:%M:%S')"
+    if [[ "$density" == "compact" ]]; then
+        now="$(date '+%H:%M:%S')"
+    else
+        now="$(date '+%Y-%m-%d %H:%M:%S')"
+    fi
     host="$(hostname -s 2>/dev/null || hostname)"
 
-    segment cyan "${cpu:+CPU:$cpu}"
-    segment green "${mem:+MEM:$mem}"
-    segment magenta "$gpu"
-    segment yellow "$disk"
-    segment blue "$now"
-    segment brightcyan "$host"
+    required_width=$((${#now} + ${#host}))
+    if [[ -n "$now" && -n "$host" ]]; then
+        required_width=$((required_width + 3))
+    fi
+
+    can_fit_optional() {
+        local text="$1"
+        local next_optional_width
+        local bridge_width=0
+
+        [[ -n "$text" ]] || return 1
+        if ((optional_width > 0)); then
+            next_optional_width=$((optional_width + 3 + ${#text}))
+        else
+            next_optional_width="${#text}"
+        fi
+        if ((next_optional_width > 0 && required_width > 0)); then
+            bridge_width=3
+        fi
+        ((next_optional_width + bridge_width + required_width <= budget))
+    }
+
+    select_optional() {
+        local name="$1"
+        local text="$2"
+
+        can_fit_optional "$text" || return
+        if ((optional_width > 0)); then
+            optional_width=$((optional_width + 3 + ${#text}))
+        else
+            optional_width="${#text}"
+        fi
+
+        case "$name" in
+            cpu)
+                selected_cpu="$text"
+                ;;
+            mem)
+                selected_mem="$text"
+                ;;
+            gpu)
+                selected_gpu="$text"
+                ;;
+            net)
+                selected_net="$text"
+                ;;
+            disk)
+                selected_disk="$text"
+                ;;
+        esac
+    }
+
+    if [[ "$density" == "medium" || "$density" == "full" ]]; then
+        select_optional disk "$disk"
+    fi
+    if [[ "$density" == "full" ]]; then
+        select_optional cpu "${cpu:+CPU:$cpu}"
+        select_optional mem "${mem:+MEM:$mem}"
+        select_optional gpu "$gpu"
+        select_optional net "$net"
+    fi
+
+    add_segment() {
+        local color="$1"
+        local text="$2"
+
+        [[ -n "$text" ]] || return
+        if ((first)); then
+            first=0
+        else
+            printf ' #[fg=%s]| ' brightblack
+        fi
+        segment "$color" "$text"
+    }
+
+    add_segment cyan "$selected_cpu"
+    add_segment green "$selected_mem"
+    add_segment magenta "$selected_gpu"
+    add_segment brightblue "$selected_net"
+    add_segment yellow "$selected_disk"
+    add_segment blue "$now"
+    add_segment brightcyan "$host"
 }
 
 main
