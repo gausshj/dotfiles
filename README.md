@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/gausshj/dotfiles/main/install.sh | 
 | Package | Description |
 |---------|-------------|
 | `zsh/` | `.zshrc`, `.p10k.zsh` — OMZ + powerlevel10k + plugins |
-| `tmux/` | `.tmux.conf` + fzf pane switcher |
+| `tmux/` | `.tmux.conf`, status bar, popup shell/scratch, fzf pane switcher |
 | `nvim/` | `.config/nvim/init.vim` — gruvbox, LSP, treesitter, telescope |
 | `git/` | shared `.gitconfig`; identity/signing live in `~/.gitconfig.local` |
 | `packages/` | package manifests used by `bootstrap.sh` |
@@ -45,6 +45,8 @@ curl -fsSL https://raw.githubusercontent.com/gausshj/dotfiles/main/install.sh | 
 │   ├── .tmux.conf       # Main tmux config (macOS + Linux unified)
 │   └── .config/tmux/scripts/
 │       ├── pane_switcher.sh
+│       ├── popup.sh
+│       ├── status_toggle.sh
 │       └── status_info.sh
 ├── nvim/.config/nvim/
 │   └── init.vim         # Neovim/Vim init (Linux primary)
@@ -145,6 +147,56 @@ On an existing machine, re-running the curl command updates selected managed con
 
 ```bash
 brew bundle --file=~/.dotfiles/Brewfile
+```
+
+When using iTerm2's own status widgets, keep tmux's window list while hiding the
+right-side machine status with `~/.tmux.local.conf`:
+
+```tmux
+set -g status-right ""
+set -g status-right-length 0
+```
+
+The shared tmux config loads `~/.tmux.local.conf` last, so local UI choices do
+not need to fork the repo config. A ready-to-copy macOS example lives at
+`templates/tmux.local.macos`.
+
+Toggle the right-side machine status for the current tmux server:
+
+```bash
+~/.config/tmux/scripts/status_toggle.sh toggle
+```
+
+Equivalent tmux key: `prefix + i`.
+
+## tmux Popups
+
+The tmux config uses native `display-popup` on tmux 3.2 or newer:
+
+| Key | Action |
+|-----|--------|
+| `prefix + g` | Temporary shell popup in the current pane directory |
+| `prefix + G` | Persistent scratch popup backed by the `tmux-scratch` session |
+| `prefix + i` | Toggle the right-side machine status segment |
+
+Popups attach to a tmux session inside the popup, so normal tmux copy-mode works
+there too. Use `prefix + [` inside the popup, select with vi-style keys, and copy
+with `y`.
+
+The right-side machine status is split into CPU, memory, GPU when available,
+network when available, disk usage for local mounts, timestamp, and hostname.
+It adapts to the current tmux client width so window tabs have priority on
+smaller screens. Window tabs split the available client width across windows,
+then clamp each title to a readable min/max width. Short names pad evenly; long
+names shrink with an ellipsis. The active tab uses a rounded highlight, while
+inactive tabs stay lightweight with subtle vertical separators.
+
+Override popup defaults locally:
+
+```tmux
+set-environment -g TMUX_POPUP_WIDTH 90%
+set-environment -g TMUX_POPUP_HEIGHT 85%
+set-environment -g TMUX_POPUP_SCRATCH_SESSION my-scratch
 ```
 
 ## Linux Only (nvim)
