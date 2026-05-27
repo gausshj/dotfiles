@@ -196,6 +196,136 @@ prompt_checkbox_menu() {
     printf '\033[?25h'
 }
 
+render_select_menu() {
+    local title="$1"
+    local cursor="$2"
+    local i prefix label_color
+
+    printf '%b◆%b  %s\n' "$GREEN" "$NC" "$title"
+    printf '%b│%b\n' "$DIM" "$NC"
+    printf '%b│%b  %b↑/↓%b or %bj/k%b move · %bEnter%b select · %bq%b cancel\n' "$DIM" "$NC" "$GREEN" "$NC" "$GREEN" "$NC" "$GREEN" "$NC" "$GREEN" "$NC"
+    printf '%b│%b\n' "$DIM" "$NC"
+
+    for i in "${!SELECT_LABELS[@]}"; do
+        if [[ "$i" -eq "$cursor" ]]; then
+            prefix="${GREEN}›${NC}"
+            label_color="$NC"
+        else
+            prefix=" "
+            label_color="$DIM"
+        fi
+        printf '%b│%b  %b %b%s%b\n' "$DIM" "$NC" "$prefix" "$label_color" "${SELECT_LABELS[$i]}" "$NC"
+    done
+    printf '%b│%b\n' "$DIM" "$NC"
+    printf '%b◇%b  Press Enter to continue.\n' "$DIM" "$NC"
+    printf '\033[J'
+}
+
+prompt_select_menu() {
+    local title="$1"
+    local __var="$2"
+    local cursor=0
+    local count key rest menu_lines=0 rendered=0
+
+    printf '\033[?25l'
+    while true; do
+        count="${#SELECT_VALUES[@]}"
+        if [[ "$rendered" == "1" ]]; then
+            printf '\033[%dA\033[J' "$menu_lines"
+        fi
+        render_select_menu "$title" "$cursor"
+        menu_lines=$((count + 6))
+        rendered=1
+
+        read_key key || break
+        case "$key" in
+            "")
+                printf '\n'
+                printf -v "$__var" '%s' "${SELECT_VALUES[$cursor]}"
+                break
+                ;;
+            q|Q)
+                printf '\n'
+                printf -v "$__var" '%s' ""
+                break
+                ;;
+            $'\033')
+                read_key_rest rest || true
+                case "$rest" in
+                    "[A")
+                        if [[ "$cursor" -gt 0 ]]; then
+                            cursor=$((cursor - 1))
+                        else
+                            cursor=$((count - 1))
+                        fi
+                        ;;
+                    "[B")
+                        if [[ "$cursor" -lt $((count - 1)) ]]; then
+                            cursor=$((cursor + 1))
+                        else
+                            cursor=0
+                        fi
+                        ;;
+                esac
+                ;;
+            k|K)
+                if [[ "$cursor" -gt 0 ]]; then
+                    cursor=$((cursor - 1))
+                else
+                    cursor=$((count - 1))
+                fi
+                ;;
+            j|J)
+                if [[ "$cursor" -lt $((count - 1)) ]]; then
+                    cursor=$((cursor + 1))
+                else
+                    cursor=0
+                fi
+                ;;
+        esac
+    done
+    printf '\033[?25h'
+}
+
+read_prompt_line() {
+    local prompt="$1"
+    local __var="$2"
+
+    if [[ -t 0 ]]; then
+        IFS= read -r -p "$prompt" "$__var"
+    else
+        printf '%s' "$prompt" >/dev/tty
+        IFS= read -r "$__var" </dev/tty
+    fi
+}
+
+collect_timezones() {
+    if command -v timedatectl >/dev/null 2>&1; then
+        timedatectl list-timezones 2>/dev/null || true
+        return
+    fi
+
+    if [[ -d /usr/share/zoneinfo ]]; then
+        find /usr/share/zoneinfo -type f 2>/dev/null |
+            sed 's#^/usr/share/zoneinfo/##' |
+            grep -Ev '^(posix|right)/|\.tab$|\.list$|leapseconds$|localtime$|Factory$'
+    elif [[ -d /var/db/timezone/zoneinfo ]]; then
+        find /var/db/timezone/zoneinfo -type f 2>/dev/null |
+            sed 's#^/var/db/timezone/zoneinfo/##' |
+            grep -Ev '^(posix|right)/|\.tab$|\.list$|leapseconds$|localtime$|Factory$'
+    fi
+}
+
+select_from_list() {
+    local title="$1"
+    local __var="$2"
+    shift 2
+
+    SELECT_LABELS=("$@")
+    SELECT_VALUES=("$@")
+    prompt_select_menu "$title" "$__var"
+}
+
 package_file_path() {
     printf '%s/packages/%s\n' "$DOTFILES" "$1"
 }
@@ -624,6 +754,208 @@ install_nvim_plugins() {
     fi
 }
 
+current_timezone() {
+    local localtime_link timezone
+
+    if command -v timedatectl >/dev/null 2>&1; then
+        timezone="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
+        [[ -n "$timezone" ]] && printf '%s\n' "$timezone" && return
+    fi
+
+    if [[ "$OS_TYPE" == "macos" ]] && command -v systemsetup >/dev/null 2>&1; then
+        timezone="$(systemsetup -gettimezone 2>/dev/null | sed 's/^Time Zone: //')"
+        [[ -n "$timezone" ]] && printf '%s\n' "$timezone" && return
+    fi
+
+    if [[ -L /etc/localtime ]]; then
+        localtime_link="$(readlink /etc/localtime || true)"
+        case "$localtime_link" in
+            *zoneinfo/*)
+                printf '%s\n' "${localtime_link#*zoneinfo/}"
+                return
+                ;;
+        esac
+    fi
+}
+
+timezone_exists() {
+    local timezone="$1"
+
+    [[ -f "/usr/share/zoneinfo/$timezone" ]] && return 0
+    [[ -f "/var/db/timezone/zoneinfo/$timezone" ]] && return 0
+    return 1
+}
+
+set_timezone() {
+    local timezone="$1"
+
+    [[ -n "$timezone" && "$timezone" != "keep" ]] || return 0
+
+    if ! timezone_exists "$timezone"; then
+        warn "Timezone not found on this system: $timezone"
+        return 1
+    fi
+
+    step "Configuring timezone: $timezone"
+    if [[ "$OS_TYPE" == "linux" ]]; then
+        if command -v timedatectl >/dev/null 2>&1 && sudo timedatectl set-timezone "$timezone" 2>/dev/null; then
+            :
+        elif [[ -f "/usr/share/zoneinfo/$timezone" ]]; then
+            sudo ln -snf "/usr/share/zoneinfo/$timezone" /etc/localtime || {
+                warn "Could not update /etc/localtime"
+                return 1
+            }
+            if [[ -w /etc/timezone || ! -e /etc/timezone ]]; then
+                printf '%s\n' "$timezone" | sudo tee /etc/timezone >/dev/null || true
+            fi
+        else
+            warn "Could not set timezone on this Linux system"
+            return 1
+        fi
+    elif [[ "$OS_TYPE" == "macos" ]]; then
+        sudo systemsetup -settimezone "$timezone" >/dev/null || {
+            warn "Could not set timezone via systemsetup"
+            return 1
+        }
+    fi
+    info "Timezone set to $timezone"
+}
+
+configure_timezone() {
+    local selected custom current region query matches match_count
+
+    current="$(current_timezone || true)"
+    if [[ -n "$current" ]]; then
+        info "Current timezone: $current"
+    else
+        info "Current timezone: unknown"
+    fi
+
+    selected="${DOTFILES_TIMEZONE:-}"
+    while [[ -z "$selected" && "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; do
+        SELECT_LABELS=(
+            "Keep current timezone${current:+ ($current)}"
+            "China - Beijing Time (Asia/Shanghai)"
+            "UTC"
+            "United States - Eastern (America/New_York)"
+            "United States - Central (America/Chicago)"
+            "United States - Mountain (America/Denver)"
+            "United States - Pacific (America/Los_Angeles)"
+            "Browse/search all timezones..."
+        )
+        SELECT_VALUES=(
+            "keep"
+            "Asia/Shanghai"
+            "Etc/UTC"
+            "America/New_York"
+            "America/Chicago"
+            "America/Denver"
+            "America/Los_Angeles"
+            "browse"
+        )
+        prompt_select_menu "Timezone setup" selected
+
+        case "$selected" in
+            browse)
+                SELECT_LABELS=(
+                    "Back"
+                    "Search timezone"
+                    "Browse by region"
+                    "Enter IANA timezone manually"
+                )
+                SELECT_VALUES=(
+                    "back"
+                    "search"
+                    "region"
+                    "manual"
+                )
+                prompt_select_menu "Browse/search timezones" selected
+                case "$selected" in
+                    ""|back)
+                        selected=""
+                        continue
+                        ;;
+                    search)
+                        read_prompt_line "Search timezone: " query
+                        matches=()
+                        while IFS= read -r timezone; do
+                            matches+=("$timezone")
+                        done < <(collect_timezones | grep -i -- "$query" | sort | head -n 20)
+                        match_count="${#matches[@]}"
+                        if [[ "$match_count" -eq 0 ]]; then
+                            warn "No timezones matched: $query"
+                            selected=""
+                            continue
+                        fi
+                        select_from_list "Search results" selected "${matches[@]}"
+                        ;;
+                    region)
+                        SELECT_LABELS=(
+                            "Back"
+                            "Africa"
+                            "America"
+                            "Antarctica"
+                            "Asia"
+                            "Atlantic"
+                            "Australia"
+                            "Europe"
+                            "Indian"
+                            "Pacific"
+                            "Etc"
+                        )
+                        SELECT_VALUES=(
+                            "back"
+                            "Africa"
+                            "America"
+                            "Antarctica"
+                            "Asia"
+                            "Atlantic"
+                            "Australia"
+                            "Europe"
+                            "Indian"
+                            "Pacific"
+                            "Etc"
+                        )
+                        prompt_select_menu "Timezone region" region
+                        if [[ -z "$region" || "$region" == "back" ]]; then
+                            selected=""
+                            continue
+                        fi
+                        matches=()
+                        while IFS= read -r timezone; do
+                            matches+=("$timezone")
+                        done < <(collect_timezones | grep "^$region/" | sort)
+                        if [[ "${#matches[@]}" -eq 0 ]]; then
+                            warn "No timezones found under region: $region"
+                            selected=""
+                            continue
+                        fi
+                        select_from_list "$region timezones" selected "${matches[@]}"
+                        ;;
+                    manual)
+                        read_prompt_line "IANA timezone (for example Asia/Shanghai): " custom
+                        selected="$custom"
+                        ;;
+                esac
+                ;;
+        esac
+    done
+
+    case "$selected" in
+        custom|manual)
+            read_prompt_line "IANA timezone (for example Asia/Shanghai): " custom
+            selected="$custom"
+            ;;
+    esac
+
+    if [[ -z "$selected" || "$selected" == "keep" ]]; then
+        info "Keeping current timezone."
+        return
+    fi
+
+    set_timezone "$selected" || true
+}
+
 # ------------------------------------------------------------------
 # Platform detection
 # ------------------------------------------------------------------
@@ -661,6 +993,7 @@ CONFIGURE_GIT="${DOTFILES_CONFIGURE_GIT:-0}"
 CHANGE_SHELL="${DOTFILES_CHANGE_SHELL:-1}"
 INSTALL_TMUX_PLUGINS="${DOTFILES_INSTALL_TMUX_PLUGINS:-1}"
 INSTALL_NVIM_PLUGINS="${DOTFILES_INSTALL_NVIM_PLUGINS:-}"
+CONFIGURE_TIMEZONE="${DOTFILES_CONFIGURE_TIMEZONE:-0}"
 SHELL_CHANGE_STATUS="not_requested"
 
 if [[ "$OS_TYPE" == "linux" && -z "${DOTFILES_DEPLOY_NVIM:-}" ]]; then
@@ -685,6 +1018,7 @@ if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
         CHANGE_SHELL
         INSTALL_TMUX_PLUGINS
         INSTALL_NVIM_PLUGINS
+        CONFIGURE_TIMEZONE
     )
     CHECKBOX_LABELS=(
         "Install system packages"
@@ -700,6 +1034,7 @@ if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
         "Set default shell to zsh"
         "Install tmux plugins"
         "Install nvim plugin manager and plugins"
+        "Configure timezone"
     )
     CHECKBOX_CANCELLED=0
     prompt_checkbox_menu "Dotfiles setup"
@@ -723,6 +1058,7 @@ enabled CONFIGURE_GIT && configure_git
 enabled CHANGE_SHELL && change_default_shell
 enabled INSTALL_TMUX_PLUGINS && install_tmux_plugins
 enabled INSTALL_NVIM_PLUGINS && install_nvim_plugins
+enabled CONFIGURE_TIMEZONE && configure_timezone
 
 # ------------------------------------------------------------------
 # Final instructions
