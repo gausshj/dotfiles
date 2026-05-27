@@ -14,6 +14,25 @@ cd ~/.dotfiles
 curl -fsSL https://raw.githubusercontent.com/gausshj/dotfiles/main/install.sh | bash
 ```
 
+## Install Flow
+
+```mermaid
+flowchart TD
+  start["Run install.sh or bootstrap.sh"] --> checkout["Clone or update ~/.dotfiles"]
+  checkout --> bootstrap["Run bootstrap.sh"]
+  bootstrap --> detect["Detect macOS or Linux"]
+  detect --> menu{"Interactive terminal?"}
+  menu -->|yes| tui["Checkbox setup menu"]
+  menu -->|no| defaults["Default non-interactive selection"]
+  tui --> selected["Run selected setup steps"]
+  defaults --> selected
+  selected --> packages["Install selected packages"]
+  selected --> tools["Install zsh/tmux/nvim helpers"]
+  selected --> deploy["Deploy configs by symlink or copy"]
+  deploy --> local["Create local override templates if missing"]
+  local --> done["Print follow-up commands"]
+```
+
 ## What's Included
 
 | Package | Description |
@@ -73,7 +92,64 @@ cd ~/.dotfiles
 exec zsh
 ```
 
-`bootstrap.sh` shows a checkbox-style setup menu when run in an interactive terminal. Use Up/Down to move, Space to toggle items, and Enter to run the selected steps. The personal Git/GPG/GitHub auth option is off by default, which keeps VPS installs free of local identity and GitHub token setup.
+## Interactive Installer
+
+`bootstrap.sh` shows a checkbox-style setup menu when run in an interactive
+terminal. A typical Linux run looks like this:
+
+```text
+◆  Dotfiles setup
+│
+│  ↑/↓ or j/k move · Space toggle · Enter run
+│  a all · n none · q cancel
+│
+│  › ●  Install system packages
+│    ●  Install oh-my-zsh, powerlevel10k, zsh plugins
+│    ●  Install tmux plugin manager
+│    ●  Use symlinks via stow (uncheck to copy files)
+│    ●  Deploy zsh config
+│    ●  Deploy tmux config
+│    ●  Deploy shared git config
+│    ●  Deploy nvim config
+│    ●  Create local template files
+│    ○  Configure personal Git/GPG/GitHub auth
+│    ●  Set default shell to zsh
+│    ●  Install tmux plugins
+│    ●  Install nvim plugin manager and plugins
+│    ○  Configure timezone
+│
+◇  Press Enter to continue.
+```
+
+Keys:
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` or `k` / `j` | Move the cursor |
+| `Space` | Toggle the current item |
+| `Enter` | Run selected items |
+| `a` | Select all |
+| `n` | Select none |
+| `q` | Cancel |
+
+Setup options:
+
+| Option | Default | What it does |
+|--------|---------|--------------|
+| Install system packages | On | Installs packages from `packages/` with apt or Homebrew |
+| Install oh-my-zsh, powerlevel10k, zsh plugins | On | Installs the zsh framework, theme, and shared plugins |
+| Install tmux plugin manager | On | Installs TPM under `~/.tmux/plugins/tpm` |
+| Use symlinks via stow | On | Uses GNU Stow links; uncheck to copy files into `$HOME` |
+| Deploy zsh config | On | Deploys `.zshrc` and `.p10k.zsh` |
+| Deploy tmux config | On | Deploys `.tmux.conf` and tmux helper scripts |
+| Deploy shared git config | On | Deploys shared git behavior, not personal identity |
+| Deploy nvim config | Linux on, macOS off | Deploys `nvim/.config/nvim/init.vim` |
+| Create local template files | On | Creates local override files only when missing |
+| Configure personal Git/GPG/GitHub auth | Off | Prompts for identity/signing/auth and writes local-only config |
+| Set default shell to zsh | On | Runs `chsh`; if it fails, the final message prints manual commands |
+| Install tmux plugins | On | Runs TPM plugin installation when tmux is available |
+| Install nvim plugin manager and plugins | Follows nvim deploy | Installs vim-plug and syncs pinned plugins |
+| Configure timezone | Off | Optional timezone picker; first option keeps the current timezone |
 
 By default, configs are deployed with `stow` symlinks. Uncheck `Use symlinks via stow` to copy files into `$HOME` instead. If an existing dotfile would conflict, `bootstrap.sh` backs it up under `~/.dotfiles-backup/<timestamp>/` before deploying the repo version.
 
@@ -144,6 +220,21 @@ The installer is designed to be re-run.
 
 On an existing machine, re-running the curl command updates selected managed configs such as tmux when they are enabled in the setup menu. Disable a deploy option in the menu if you do not want that config refreshed on that run.
 
+## Local Overrides
+
+Shared configs stay in the repository. Machine-specific settings stay outside
+git in local override files:
+
+| File | Purpose |
+|------|---------|
+| `~/.zshrc.local` | Local shell aliases, paths, and machine-only tweaks |
+| `~/.zshrc.secrets` | Secrets exported into the shell environment |
+| `~/.gitconfig.local` | Git identity, email, signing key, and credential helpers |
+| `~/.tmux.local.conf` | Machine-specific tmux UI choices |
+
+The installer creates template files only when they are missing, so re-running
+the installer does not overwrite local secrets or local UI preferences.
+
 ## macOS Only
 
 ```bash
@@ -172,6 +263,43 @@ Toggle the right-side machine status for the current tmux server:
 ```
 
 Equivalent tmux key: `prefix + i`.
+
+## tmux Status Layout
+
+The tmux status bar keeps the window list as the primary UI and treats machine
+status as optional. A small layout helper calculates the shared width budget so
+the tab list and right-side status do not independently guess how much space is
+available.
+
+```mermaid
+flowchart LR
+  conf[".tmux.conf"] --> layout["status_layout.sh"]
+  toggle["status_toggle.sh"] --> layout
+  local["~/.tmux.local.conf"] --> conf
+  layout --> opts["tmux options\nstatus density\nright budget\ntab title width"]
+  opts --> tabs["window tabs"]
+  opts --> info["status_info.sh"]
+  info --> right["right-side machine status"]
+```
+
+Density levels:
+
+| Density | Typical output | When used |
+|---------|----------------|-----------|
+| `full` | Disk, CPU/memory/GPU/network when available, date/time, host | Few windows and wide terminal |
+| `medium` | Disk when it fits, date/time, host | Moderate space |
+| `compact` | Time and host | Many windows or tighter width |
+| `off` | Nothing on the right | Very narrow or user disabled |
+
+Useful commands:
+
+```bash
+# Inspect the current layout decision.
+~/.config/tmux/scripts/status_layout.sh print
+
+# Toggle the right-side machine status.
+~/.config/tmux/scripts/status_toggle.sh toggle
+```
 
 ## tmux Popups
 
