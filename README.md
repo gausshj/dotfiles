@@ -46,6 +46,7 @@ curl -fsSL https://raw.githubusercontent.com/gausshj/dotfiles/main/install.sh | 
 │   └── .config/tmux/scripts/
 │       ├── pane_switcher.sh
 │       ├── popup.sh
+│       ├── status_layout.sh
 │       ├── status_toggle.sh
 │       └── status_info.sh
 ├── nvim/.config/nvim/
@@ -153,6 +154,7 @@ When using iTerm2's own status widgets, keep tmux's window list while hiding the
 right-side machine status with `~/.tmux.local.conf`:
 
 ```tmux
+set -g @tmux_status_preference "off"
 set -g status-right ""
 set -g status-right-length 0
 ```
@@ -165,6 +167,8 @@ Toggle the right-side machine status for the current tmux server:
 
 ```bash
 ~/.config/tmux/scripts/status_toggle.sh toggle
+~/.config/tmux/scripts/status_toggle.sh on
+~/.config/tmux/scripts/status_toggle.sh off
 ```
 
 Equivalent tmux key: `prefix + i`.
@@ -184,12 +188,17 @@ there too. Use `prefix + [` inside the popup, select with vi-style keys, and cop
 with `y`.
 
 The right-side machine status is split into CPU, memory, GPU when available,
-network when available, disk usage for local mounts, timestamp, and hostname.
-It adapts to the current tmux client width so window tabs have priority on
-smaller screens. Window tabs split the available client width across windows,
-then clamp each title to a readable min/max width. Short names pad evenly; long
-names shrink with an ellipsis. The active tab uses a rounded highlight, while
-inactive tabs stay lightweight with subtle vertical separators.
+network when available, disk usage for local mounts, time, and a short host
+label. `status_layout.sh` owns the shared width budget for tabs and machine
+status, while `status_info.sh` only prints the status segments allowed by the
+current density (`full`, `medium`, `compact`, or `off`). When many windows are
+open or the terminal is narrow, tmux prioritizes the window list and reduces or
+hides the machine status first.
+
+Window tabs split the available client width across windows, then clamp each
+title to a readable min/max width. Short names pad evenly; long names shrink
+with an ellipsis. The active tab uses a rounded highlight, while inactive tabs
+stay lightweight.
 
 Override popup defaults locally:
 

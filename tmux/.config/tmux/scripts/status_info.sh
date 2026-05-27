@@ -6,7 +6,7 @@ segment() {
     local text="$2"
 
     [[ -n "$text" ]] || return
-    printf '#[fg=%s]%s ' "$color" "$text"
+    printf '#[fg=%s]%s' "$color" "$text"
 }
 
 linux_cpu() {
@@ -129,26 +129,75 @@ macos_disks() {
 
 main() {
     local os cpu mem gpu net disk now host
-    local width
-    local windows
-    local tab_budget
+    local density
+    local budget
+    local required_width
+    local optional_width=0
+    local selected_cpu="" selected_mem="" selected_gpu="" selected_net="" selected_disk=""
     local first=1
+    local default_budget
+
+    density="${TMUX_STATUS_DENSITY:-$(tmux show-option -gqv @tmux_status_density 2>/dev/null || printf 'compact')}"
+    case "$density" in
+        full | medium | compact)
+            ;;
+        off)
+            return
+            ;;
+        *)
+            density="compact"
+            ;;
+    esac
+
+    budget="${TMUX_STATUS_BUDGET:-$(tmux show-option -gqv @tmux_status_right_budget 2>/dev/null || true)}"
+    case "$density" in
+        full)
+            default_budget=64
+            ;;
+        medium)
+            default_budget=38
+            ;;
+        compact)
+            default_budget=24
+            ;;
+    esac
+    [[ "$budget" =~ ^[0-9]+$ ]] || budget="$default_budget"
 
     os="$(uname -s)"
     case "$os" in
         Darwin)
-            cpu="$(macos_cpu)"
-            mem="$(macos_mem)"
+            if [[ "$density" == "full" ]]; then
+                cpu="$(macos_cpu)"
+                mem="$(macos_mem)"
+            else
+                cpu=""
+                mem=""
+            fi
             gpu=""
             net=""
-            disk="$(macos_disks)"
+            if [[ "$density" == "full" || "$density" == "medium" ]]; then
+                disk="$(macos_disks)"
+            else
+                disk=""
+            fi
             ;;
         Linux)
-            cpu="$(linux_cpu)"
-            mem="$(linux_mem)"
-            gpu="$(linux_gpu)"
-            net="$(linux_net)"
-            disk="$(linux_disks)"
+            if [[ "$density" == "full" ]]; then
+                cpu="$(linux_cpu)"
+                mem="$(linux_mem)"
+                gpu="$(linux_gpu)"
+                net="$(linux_net)"
+            else
+                cpu=""
+                mem=""
+                gpu=""
+                net=""
+            fi
+            if [[ "$density" == "full" || "$density" == "medium" ]]; then
+                disk="$(linux_disks)"
+            else
+                disk=""
+            fi
             ;;
         *)
             cpu=""
@@ -159,50 +208,73 @@ main() {
             ;;
     esac
 
-    now="$(date '+%Y-%m-%d %H:%M:%S')"
-    host="$(hostname -s 2>/dev/null || hostname)"
-    width="${TMUX_STATUS_WIDTH:-$(tmux display-message -p '#{client_width}' 2>/dev/null || printf '0')}"
-    [[ "$width" =~ ^[0-9]+$ ]] || width=0
-    windows="${TMUX_STATUS_WINDOWS:-$(tmux display-message -p '#{session_windows}' 2>/dev/null || printf '0')}"
-    [[ "$windows" =~ ^[0-9]+$ ]] || windows=0
-    if ((width > 0 && windows > 0)); then
-        tab_budget=$(( (width - 60) / windows ))
+    if [[ "$density" == "compact" ]]; then
+        now="$(date '+%H:%M:%S')"
     else
-        tab_budget=999
+        now="$(date '+%Y-%m-%d %H:%M:%S')"
+    fi
+    host="$(hostname -s 2>/dev/null || hostname)"
+
+    required_width=$((${#now} + ${#host}))
+    if [[ -n "$now" && -n "$host" ]]; then
+        required_width=$((required_width + 3))
     fi
 
-    if ((tab_budget < 8)); then
-        cpu=""
-        mem=""
-        gpu=""
-        net=""
-        disk=""
-    elif ((tab_budget < 11)); then
-        gpu=""
-        net=""
-        disk=""
-    elif ((tab_budget < 14)); then
-        net=""
-        disk=""
-    elif ((tab_budget < 17)); then
-        net=""
-    fi
+    can_fit_optional() {
+        local text="$1"
+        local next_optional_width
+        local bridge_width=0
 
-    if ((width > 0 && width < 110)); then
-        cpu=""
-        mem=""
-        gpu=""
-        net=""
-        disk=""
-    elif ((width > 0 && width < 140)); then
-        gpu=""
-        net=""
-        disk=""
-    elif ((width > 0 && width < 170)); then
-        net=""
-        disk=""
-    elif ((width > 0 && width < 200)); then
-        net=""
+        [[ -n "$text" ]] || return 1
+        if ((optional_width > 0)); then
+            next_optional_width=$((optional_width + 3 + ${#text}))
+        else
+            next_optional_width="${#text}"
+        fi
+        if ((next_optional_width > 0 && required_width > 0)); then
+            bridge_width=3
+        fi
+        ((next_optional_width + bridge_width + required_width <= budget))
+    }
+
+    select_optional() {
+        local name="$1"
+        local text="$2"
+
+        can_fit_optional "$text" || return
+        if ((optional_width > 0)); then
+            optional_width=$((optional_width + 3 + ${#text}))
+        else
+            optional_width="${#text}"
+        fi
+
+        case "$name" in
+            cpu)
+                selected_cpu="$text"
+                ;;
+            mem)
+                selected_mem="$text"
+                ;;
+            gpu)
+                selected_gpu="$text"
+                ;;
+            net)
+                selected_net="$text"
+                ;;
+            disk)
+                selected_disk="$text"
+                ;;
+        esac
+    }
+
+    if [[ "$density" == "medium" || "$density" == "full" ]]; then
+        select_optional disk "$disk"
+    fi
+    if [[ "$density" == "full" ]]; then
+        select_optional cpu "${cpu:+CPU:$cpu}"
+        select_optional mem "${mem:+MEM:$mem}"
+        select_optional gpu "$gpu"
+        select_optional net "$net"
     fi
 
     add_segment() {
@@ -213,16 +285,16 @@ main() {
         if ((first)); then
             first=0
         else
-            printf '#[fg=%s]| ' brightblack
+            printf ' #[fg=%s]| ' brightblack
         fi
         segment "$color" "$text"
     }
 
-    add_segment cyan "${cpu:+CPU:$cpu}"
-    add_segment green "${mem:+MEM:$mem}"
-    add_segment magenta "$gpu"
-    add_segment brightblue "$net"
-    add_segment yellow "$disk"
+    add_segment cyan "$selected_cpu"
+    add_segment green "$selected_mem"
+    add_segment magenta "$selected_gpu"
+    add_segment brightblue "$selected_net"
+    add_segment yellow "$selected_disk"
     add_segment blue "$now"
     add_segment brightcyan "$host"
 }

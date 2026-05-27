@@ -3,5 +3,6 @@
 # Copy to ~/.tmux.local.conf when iTerm2 already shows machine status.
 # ─────────────────────────────────────────────
 
+set -g @tmux_status_preference "off"
 set -g status-right ""
 set -g status-right-length 0
