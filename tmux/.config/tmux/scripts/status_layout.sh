@@ -83,7 +83,7 @@ calculate_layout() {
 
     preference="${TMUX_STATUS_PREFERENCE:-$(option_value '@tmux_status_preference' on)}"
     left_budget="$(uint_value "$(option_value '@tmux_status_left_budget' 16)" 16)"
-    right_budget_full="$(uint_value "$(option_value '@tmux_status_right_budget_full' 64)" 64)"
+    right_budget_full="$(uint_value "$(option_value '@tmux_status_right_budget_full' 96)" 96)"
     right_budget_medium="$(uint_value "$(option_value '@tmux_status_right_budget_medium' 38)" 38)"
     right_budget_compact="$(uint_value "$(option_value '@tmux_status_right_budget_compact' 24)" 24)"
     tab_min_title_width="$(uint_value "$(option_value '@tmux_tab_min_title_width' 3)" 3)"
