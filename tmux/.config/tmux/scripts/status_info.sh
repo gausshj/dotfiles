@@ -152,7 +152,7 @@ main() {
     budget="${TMUX_STATUS_BUDGET:-$(tmux show-option -gqv @tmux_status_right_budget 2>/dev/null || true)}"
     case "$density" in
         full)
-            default_budget=64
+            default_budget=96
             ;;
         medium)
             default_budget=38
@@ -267,14 +267,15 @@ main() {
         esac
     }
 
-    if [[ "$density" == "medium" || "$density" == "full" ]]; then
-        select_optional disk "$disk"
-    fi
     if [[ "$density" == "full" ]]; then
         select_optional cpu "${cpu:+CPU:$cpu}"
         select_optional mem "${mem:+MEM:$mem}"
         select_optional gpu "$gpu"
+        select_optional disk "$disk"
         select_optional net "$net"
+    fi
+    if [[ "$density" == "medium" ]]; then
+        select_optional disk "$disk"
     fi
 
     add_segment() {
@@ -293,8 +294,8 @@ main() {
     add_segment cyan "$selected_cpu"
     add_segment green "$selected_mem"
     add_segment magenta "$selected_gpu"
-    add_segment brightblue "$selected_net"
     add_segment yellow "$selected_disk"
+    add_segment brightblue "$selected_net"
     add_segment blue "$now"
     add_segment brightcyan "$host"
 }
