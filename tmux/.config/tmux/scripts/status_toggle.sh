@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-status_command='#(~/.config/tmux/scripts/status_info.sh)'
+status_command="#(TMUX_STATUS_DENSITY='#{@tmux_status_density}' TMUX_STATUS_BUDGET='#{@tmux_status_right_budget}' ~/.config/tmux/scripts/status_info.sh)"
 layout_script="$HOME/.config/tmux/scripts/status_layout.sh"
 
 usage() {
@@ -15,18 +15,18 @@ EOF
 status_on() {
     local density
 
-    tmux set-option -gq @tmux_status_preference on
-    tmux set-option -gq status-right "$status_command"
+    tmux set-option -q @tmux_status_preference on
+    tmux set-option -q status-right "$status_command"
     bash "$layout_script" apply >/dev/null 2>&1 || true
-    density="$(tmux show-option -gqv @tmux_status_density 2>/dev/null || printf 'on')"
+    density="$(tmux show-option -qv @tmux_status_density 2>/dev/null || printf 'on')"
     tmux display-message "tmux machine status: on (${density})"
 }
 
 status_off() {
-    tmux set-option -gq @tmux_status_preference off
+    tmux set-option -q @tmux_status_preference off
     bash "$layout_script" apply >/dev/null 2>&1 || true
-    tmux set-option -gq status-right ""
-    tmux set-option -gq status-right-length 0
+    tmux set-option -q status-right ""
+    tmux set-option -q status-right-length 0
     tmux display-message 'tmux machine status: off'
 }
 
@@ -38,7 +38,7 @@ case "${1:-toggle}" in
         status_off
         ;;
     toggle)
-        current="$(tmux show-option -gqv @tmux_status_preference 2>/dev/null || printf 'on')"
+        current="$(tmux show-option -qv @tmux_status_preference 2>/dev/null || tmux show-option -gqv @tmux_status_preference 2>/dev/null || printf 'on')"
         if [[ "$current" != "off" ]]; then
             status_off
         else
