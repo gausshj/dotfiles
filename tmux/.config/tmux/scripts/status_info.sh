@@ -9,6 +9,23 @@ segment() {
     printf '#[fg=%s]%s' "$color" "$text"
 }
 
+option_value() {
+    local option="$1"
+    local fallback="$2"
+    local value
+
+    value="$(tmux show-option -qv "$option" 2>/dev/null || true)"
+    if [[ -z "$value" ]]; then
+        value="$(tmux show-option -gqv "$option" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$value" ]]; then
+        printf '%s\n' "$value"
+    else
+        printf '%s\n' "$fallback"
+    fi
+}
+
 linux_cpu() {
     top -bn1 2>/dev/null | awk -F'[, ]+' '/Cpu\(s\)/ {printf "%.1f%%", $2 + $4; exit}'
 }
@@ -62,7 +79,7 @@ linux_gpu() {
     gpu_info="${gpu_info#*,}"
     gpu_used="${gpu_info%%,*}"
     gpu_total="${gpu_info#*,}"
-    printf 'GPU:%s%% %s/%sMiB' "$gpu_util" "$gpu_used" "$gpu_total"
+    printf 'G:%s%% %sM' "$gpu_util" "$gpu_used"
 }
 
 linux_net() {
@@ -72,17 +89,18 @@ linux_net() {
     [[ -n "$iface" ]] || return
     command -v ifstat >/dev/null 2>&1 || return
 
-    stats="$(ifstat -i "$iface" 0.1 1 2>/dev/null | tail -n 1 | awk '{printf "Net:Up %.1fKB/s Down %.1fKB/s", $2, $1}')"
+    stats="$(ifstat -i "$iface" 0.1 1 2>/dev/null | tail -n 1 | awk '{printf "N:%.1fU %.1fD", $2, $1}')"
     [[ -n "$stats" ]] || return
     printf '%s' "$stats"
 }
 
 linux_disks() {
     df -h -P 2>/dev/null | awk '
-        NR > 1 && $1 ~ "^/dev/" {
+        NR > 1 {
             size = $2
             target = $6
 
+            if ($1 !~ "^/dev/" && target !~ "^/(mnt|media)/") next
             if (target ~ "^/(boot|snap|var/lib/docker|run|dev|proc|sys)(/|$)") next
             if (size ~ /K$/ || size ~ /M$/) next
 
@@ -97,10 +115,12 @@ linux_disks() {
             sub("^/media/[^/]+/", "", label)
 
             if (out != "") out = out " "
-            out = out label ":" $5
+            used = $5
+            sub("%", "", used)
+            out = out label used
         }
         END {
-            if (out != "") print "Disk:" out
+            if (out != "") print "D:" out
         }
     '
 }
@@ -119,10 +139,12 @@ macos_disks() {
 
             if (seen[label]++) next
             if (out != "") out = out " "
-            out = out label ":" $5
+            used = $5
+            sub("%", "", used)
+            out = out label used
         }
         END {
-            if (out != "") print "Disk:" out
+            if (out != "") print "D:" out
         }
     '
 }
@@ -137,7 +159,7 @@ main() {
     local first=1
     local default_budget
 
-    density="${TMUX_STATUS_DENSITY:-$(tmux show-option -gqv @tmux_status_density 2>/dev/null || printf 'compact')}"
+    density="${TMUX_STATUS_DENSITY:-$(option_value @tmux_status_density compact)}"
     case "$density" in
         full | medium | compact)
             ;;
@@ -149,10 +171,10 @@ main() {
             ;;
     esac
 
-    budget="${TMUX_STATUS_BUDGET:-$(tmux show-option -gqv @tmux_status_right_budget 2>/dev/null || true)}"
+    budget="${TMUX_STATUS_BUDGET:-$(option_value @tmux_status_right_budget '')}"
     case "$density" in
         full)
-            default_budget=96
+            default_budget=108
             ;;
         medium)
             default_budget=38
@@ -214,6 +236,8 @@ main() {
         now="$(date '+%Y-%m-%d %H:%M:%S')"
     fi
     host="$(hostname -s 2>/dev/null || hostname)"
+    mem="${mem//GiB/G}"
+    mem="${mem//Gi/G}"
 
     required_width=$((${#now} + ${#host}))
     if [[ -n "$now" && -n "$host" ]]; then
@@ -267,15 +291,76 @@ main() {
         esac
     }
 
+    upgrade_optional() {
+        local name="$1"
+        local text="$2"
+        local current=""
+        local delta
+        local bridge_width=0
+
+        [[ -n "$text" ]] || return
+        case "$name" in
+            cpu)
+                current="$selected_cpu"
+                ;;
+            mem)
+                current="$selected_mem"
+                ;;
+            gpu)
+                current="$selected_gpu"
+                ;;
+            net)
+                current="$selected_net"
+                ;;
+            disk)
+                current="$selected_disk"
+                ;;
+        esac
+
+        [[ -n "$current" ]] || return
+        delta=$((${#text} - ${#current}))
+        if ((delta <= 0)); then
+            :
+        elif ((optional_width + delta > 0 && required_width > 0)); then
+            bridge_width=3
+        fi
+        ((optional_width + delta + bridge_width + required_width <= budget)) || return
+        optional_width=$((optional_width + delta))
+
+        case "$name" in
+            cpu)
+                selected_cpu="$text"
+                ;;
+            mem)
+                selected_mem="$text"
+                ;;
+            gpu)
+                selected_gpu="$text"
+                ;;
+            net)
+                selected_net="$text"
+                ;;
+            disk)
+                selected_disk="$text"
+                ;;
+        esac
+    }
+
     if [[ "$density" == "full" ]]; then
-        select_optional cpu "${cpu:+CPU:$cpu}"
-        select_optional mem "${mem:+MEM:$mem}"
+        select_optional cpu "${cpu:+C:$cpu}"
+        select_optional mem "${mem:+M:$mem}"
         select_optional gpu "$gpu"
-        select_optional disk "$disk"
         select_optional net "$net"
+        select_optional disk "$disk"
+        upgrade_optional cpu "${cpu:+CPU:$cpu}"
+        upgrade_optional mem "${mem:+MEM:$mem}"
+        upgrade_optional gpu "${gpu/#G:/GPU:}"
+        upgrade_optional net "${net/#N:/NET:}"
+        upgrade_optional disk "${disk/#D:/Disk:}"
     fi
     if [[ "$density" == "medium" ]]; then
         select_optional disk "$disk"
+        upgrade_optional disk "${disk/#D:/Disk:}"
     fi
 
     add_segment() {
@@ -294,8 +379,8 @@ main() {
     add_segment cyan "$selected_cpu"
     add_segment green "$selected_mem"
     add_segment magenta "$selected_gpu"
-    add_segment yellow "$selected_disk"
     add_segment brightblue "$selected_net"
+    add_segment yellow "$selected_disk"
     add_segment blue "$now"
     add_segment brightcyan "$host"
 }

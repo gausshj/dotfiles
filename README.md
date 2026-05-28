@@ -254,7 +254,7 @@ The shared tmux config loads `~/.tmux.local.conf` last, so local UI choices do
 not need to fork the repo config. A ready-to-copy macOS example lives at
 `templates/tmux.local.macos`.
 
-Toggle the right-side machine status for the current tmux server:
+Toggle the right-side machine status for the current tmux session:
 
 ```bash
 ~/.config/tmux/scripts/status_toggle.sh toggle
@@ -286,7 +286,7 @@ Density levels:
 
 | Density | Typical output | When used |
 |---------|----------------|-----------|
-| `full` | Disk, CPU/memory/GPU/network when available, date/time, host | Few windows and wide terminal |
+| `full` | CPU, memory, GPU, network, disk, date/time, host when they fit | Few windows and wide terminal |
 | `medium` | Disk when it fits, date/time, host | Moderate space |
 | `compact` | Time and host | Many windows or tighter width |
 | `off` | Nothing on the right | Very narrow or user disabled |
