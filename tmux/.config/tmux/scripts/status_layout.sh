@@ -122,6 +122,23 @@ raw_title_width_for_budget() {
     printf '%s\n' $((available / windows))
 }
 
+dynamic_full_budget() {
+    local max_budget="$1"
+    local tab_reserved_budget
+    local expanded_budget
+
+    tab_reserved_budget=$((windows * (tab_fixed_width + tab_max_title_width)))
+    expanded_budget=$((width - left_budget - tab_reserved_budget))
+
+    if ((expanded_budget < right_budget_full)); then
+        printf '%s\n' "$right_budget_full"
+    elif ((expanded_budget > max_budget)); then
+        printf '%s\n' "$max_budget"
+    else
+        printf '%s\n' "$expanded_budget"
+    fi
+}
+
 clamp_title_width() {
     local raw="$1"
 
@@ -142,6 +159,7 @@ calculate_layout() {
     preference="${TMUX_STATUS_PREFERENCE:-$(option_value '@tmux_status_preference' on)}"
     left_budget="$(uint_value "${TMUX_STATUS_LEFT_BUDGET:-$(option_value '@tmux_status_left_budget' 24)}" 24)"
     right_budget_full="$(uint_value "${TMUX_STATUS_RIGHT_BUDGET_FULL:-$(option_value '@tmux_status_right_budget_full' 108)}" 108)"
+    right_budget_full_max="$(uint_value "${TMUX_STATUS_RIGHT_BUDGET_FULL_MAX:-$(option_value '@tmux_status_right_budget_full_max' 160)}" 160)"
     right_budget_medium="$(uint_value "${TMUX_STATUS_RIGHT_BUDGET_MEDIUM:-$(option_value '@tmux_status_right_budget_medium' 38)}" 38)"
     right_budget_compact="$(uint_value "${TMUX_STATUS_RIGHT_BUDGET_COMPACT:-$(option_value '@tmux_status_right_budget_compact' 24)}" 24)"
     tab_min_title_width="$(uint_value "${TMUX_TAB_MIN_TITLE_WIDTH:-$(option_value '@tmux_tab_min_title_width' 3)}" 3)"
@@ -172,8 +190,8 @@ calculate_layout() {
             fi
         elif ((raw_full >= desired_full_width)); then
             density="full"
-            right_budget="$right_budget_full"
-            raw_title_width="$raw_full"
+            right_budget="$(dynamic_full_budget "$right_budget_full_max")"
+            raw_title_width="$(raw_title_width_for_budget "$right_budget")"
         elif ((raw_medium >= desired_medium_width)); then
             density="medium"
             right_budget="$right_budget_medium"

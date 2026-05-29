@@ -117,10 +117,10 @@ linux_disks() {
             if (out != "") out = out " "
             used = $5
             sub("%", "", used)
-            out = out label used
+            out = out label " " used "%"
         }
         END {
-            if (out != "") print "D:" out
+            if (out != "") print "D: " out
         }
     '
 }
@@ -141,10 +141,10 @@ macos_disks() {
             if (out != "") out = out " "
             used = $5
             sub("%", "", used)
-            out = out label used
+            out = out label " " used "%"
         }
         END {
-            if (out != "") print "D:" out
+            if (out != "") print "D: " out
         }
     '
 }
@@ -354,9 +354,9 @@ main() {
         select_optional disk "$disk"
         upgrade_optional cpu "${cpu:+CPU:$cpu}"
         upgrade_optional mem "${mem:+MEM:$mem}"
+        upgrade_optional disk "${disk/#D:/Disk:}"
         upgrade_optional gpu "${gpu/#G:/GPU:}"
         upgrade_optional net "${net/#N:/NET:}"
-        upgrade_optional disk "${disk/#D:/Disk:}"
     fi
     if [[ "$density" == "medium" ]]; then
         select_optional disk "$disk"
