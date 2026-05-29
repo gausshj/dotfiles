@@ -94,6 +94,42 @@ linux_net() {
     printf '%s' "$stats"
 }
 
+macos_default_iface() {
+    route -n get default 2>/dev/null | awk '/interface:/ {print $2; exit}'
+}
+
+macos_net_bytes() {
+    local iface="$1"
+
+    netstat -ibn 2>/dev/null | awk -v iface="$iface" '
+        $1 == iface && $3 ~ /^<Link/ {
+            print $7, $10
+            exit
+        }
+    '
+}
+
+macos_net() {
+    local iface in1 out1 in2 out2
+
+    iface="$(macos_default_iface)"
+    [[ -n "$iface" ]] || return
+
+    read -r in1 out1 < <(macos_net_bytes "$iface")
+    [[ "${in1:-}" =~ ^[0-9]+$ && "${out1:-}" =~ ^[0-9]+$ ]] || return
+    sleep 0.2
+    read -r in2 out2 < <(macos_net_bytes "$iface")
+    [[ "${in2:-}" =~ ^[0-9]+$ && "${out2:-}" =~ ^[0-9]+$ ]] || return
+
+    awk -v in1="$in1" -v out1="$out1" -v in2="$in2" -v out2="$out2" 'BEGIN {
+        down = (in2 - in1) / 1024 / 0.2
+        up = (out2 - out1) / 1024 / 0.2
+        if (down < 0) down = 0
+        if (up < 0) up = 0
+        printf "N:%.1fU %.1fD", up, down
+    }'
+}
+
 linux_disks() {
     df -h -P 2>/dev/null | awk '
         NR > 1 {
@@ -117,10 +153,10 @@ linux_disks() {
             if (out != "") out = out " "
             used = $5
             sub("%", "", used)
-            out = out label used
+            out = out label " " used "%"
         }
         END {
-            if (out != "") print "D:" out
+            if (out != "") print "D: " out
         }
     '
 }
@@ -141,10 +177,10 @@ macos_disks() {
             if (out != "") out = out " "
             used = $5
             sub("%", "", used)
-            out = out label used
+            out = out label " " used "%"
         }
         END {
-            if (out != "") print "D:" out
+            if (out != "") print "D: " out
         }
     '
 }
@@ -196,7 +232,11 @@ main() {
                 mem=""
             fi
             gpu=""
-            net=""
+            if [[ "$density" == "full" ]]; then
+                net="$(macos_net)"
+            else
+                net=""
+            fi
             if [[ "$density" == "full" || "$density" == "medium" ]]; then
                 disk="$(macos_disks)"
             else
@@ -354,9 +394,9 @@ main() {
         select_optional disk "$disk"
         upgrade_optional cpu "${cpu:+CPU:$cpu}"
         upgrade_optional mem "${mem:+MEM:$mem}"
+        upgrade_optional disk "${disk/#D:/Disk:}"
         upgrade_optional gpu "${gpu/#G:/GPU:}"
         upgrade_optional net "${net/#N:/NET:}"
-        upgrade_optional disk "${disk/#D:/Disk:}"
     fi
     if [[ "$density" == "medium" ]]; then
         select_optional disk "$disk"
