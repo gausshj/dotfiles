@@ -337,11 +337,39 @@ read_package_file() {
     sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$file"
 }
 
-install_homebrew_if_needed() {
-    if ! command -v brew >/dev/null 2>&1; then
-        warn "Homebrew not found - installing Homebrew first..."
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+load_homebrew_environment() {
+    local brew_path shellenv
+
+    if brew_path="$(command -v brew 2>/dev/null)" && [[ -x "$brew_path" ]]; then
+        :
+    elif [[ -n "${HOMEBREW_PREFIX:-}" && -x "$HOMEBREW_PREFIX/bin/brew" ]]; then
+        brew_path="$HOMEBREW_PREFIX/bin/brew"
+    elif [[ -x /opt/homebrew/bin/brew ]]; then
+        brew_path="/opt/homebrew/bin/brew"
+    elif [[ -x /usr/local/bin/brew ]]; then
+        brew_path="/usr/local/bin/brew"
+    else
+        return 1
     fi
+
+    shellenv="$("$brew_path" shellenv 2>/dev/null)" || return 1
+    eval "$shellenv"
+}
+
+install_homebrew_if_needed() {
+    if load_homebrew_environment && command -v brew >/dev/null 2>&1; then
+        return
+    fi
+
+    warn "Homebrew not found - installing Homebrew first..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+    if load_homebrew_environment && command -v brew >/dev/null 2>&1; then
+        return
+    fi
+
+    warn "Homebrew installed, but brew is not available in this shell. Open a new terminal, then rerun bootstrap.sh."
+    return 1
 }
 
 install_macos_packages() {
@@ -407,10 +435,7 @@ install_stow() {
 
     step "Installing GNU Stow..."
     if [[ "$OS_TYPE" == "macos" ]]; then
-        if ! command -v brew >/dev/null 2>&1; then
-            warn "Homebrew not found - installing Homebrew first..."
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        fi
+        install_homebrew_if_needed
         brew install stow
     elif [[ "$OS_TYPE" == "linux" ]]; then
         if command -v apt >/dev/null 2>&1; then
