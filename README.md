@@ -313,7 +313,9 @@ The tmux config uses native `display-popup` on tmux 3.2 or newer:
 
 Popups attach to a tmux session inside the popup, so normal tmux copy-mode works
 there too. Use `prefix + [` inside the popup, select with vi-style keys, and copy
-with `y`.
+with `y`. Copy-mode sends the selection to tmux's paste buffer and, when a
+clipboard command is available, to the system clipboard (`pbcopy` on macOS,
+`wl-copy`/`xclip`/`xsel` on Linux).
 
 The right-side machine status is split into CPU, memory, GPU when available,
 network when available, disk usage for local mounts, time, and a short host

@@ -11,3 +11,5 @@ fzf
 ripgrep
 fd-find
 bat
+wl-clipboard
+xclip
