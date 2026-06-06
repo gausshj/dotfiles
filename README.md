@@ -113,7 +113,6 @@ terminal. A typical Linux run looks like this:
 │    ●  Deploy nvim config
 │    ●  Create local template files
 │    ○  Configure personal Git/GPG/GitHub auth
-│    ●  Set default shell to zsh
 │    ●  Install tmux plugins
 │    ●  Install nvim plugin manager and plugins
 │    ○  Configure timezone
@@ -146,7 +145,6 @@ Setup options:
 | Deploy nvim config | Linux on, macOS off | Deploys `nvim/.config/nvim/init.vim` |
 | Create local template files | On | Creates local override files only when missing |
 | Configure personal Git/GPG/GitHub auth | Off | Prompts for identity/signing/auth and writes local-only config |
-| Set default shell to zsh | On | Runs `chsh`; if it fails, the final message prints manual commands |
 | Install tmux plugins | On | Runs TPM plugin installation when tmux is available |
 | Install nvim plugin manager and plugins | Follows nvim deploy | Installs vim-plug and syncs pinned plugins |
 | Configure timezone | Off | Optional timezone picker; first option keeps the current timezone |
@@ -188,6 +186,22 @@ Non-interactive defaults can be overridden with `DOTFILES_*` flags, for example:
 ```bash
 DOTFILES_NO_PROMPT=1 DOTFILES_USE_SYMLINKS=0 DOTFILES_CHANGE_SHELL=0 ./bootstrap.sh
 ```
+
+Interactive installs use zsh for the current terminal after setup by default.
+The installer also attempts to make zsh the default login shell so future
+sessions use the deployed zsh config. For non-interactive installs, opt in to
+starting zsh for the current terminal explicitly:
+
+```bash
+DOTFILES_NO_PROMPT=1 DOTFILES_START_ZSH=1 ./bootstrap.sh
+```
+
+This starts a zsh session from the installer process. Exit that session to return
+to the parent shell.
+
+For user-only installs that should not change the account login shell, set
+`DOTFILES_CHANGE_SHELL=0`. To skip entering zsh after an interactive install, set
+`DOTFILES_START_ZSH=0`.
 
 Timezone configuration is optional and off by default. If selected in the interactive menu, the first choice keeps the current system timezone. Common choices are grouped behind readable labels:
 
