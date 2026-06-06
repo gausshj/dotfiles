@@ -30,7 +30,11 @@ git_clone_shallow() {
 }
 
 tty_available() {
-    [[ -t 0 || -r /dev/tty ]]
+    if [[ -t 0 ]]; then
+        return 0
+    fi
+
+    { : </dev/tty; } 2>/dev/null
 }
 
 read_key() {
@@ -87,6 +91,14 @@ checkbox_set_all() {
     for var in "${CHECKBOX_VARS[@]}"; do
         set_enabled "$var" "$value"
     done
+
+    if [[ "$value" == "0" ]]; then
+        set_enabled CHANGE_SHELL 0
+        set_enabled START_ZSH 0
+    else
+        [[ "${CHANGE_SHELL_ENV_OPTOUT:-0}" == "1" ]] || set_enabled CHANGE_SHELL 1
+        [[ "${START_ZSH_ENV_OPTOUT:-0}" == "1" ]] || set_enabled START_ZSH 1
+    fi
 }
 
 render_checkbox_menu() {
@@ -686,6 +698,65 @@ change_default_shell() {
     fi
 }
 
+start_zsh_session() {
+    local zsh_path
+
+    zsh_path="$(command -v zsh || true)"
+    if [[ -z "$zsh_path" ]]; then
+        warn "zsh not found; cannot start a zsh session"
+        return
+    fi
+
+    if [[ -t 0 ]]; then
+        step "Using zsh for this terminal..."
+        info "This does not change your default login shell. Exit zsh to return to the parent shell."
+        exec "$zsh_path"
+    elif { : </dev/tty; } 2>/dev/null; then
+        step "Using zsh for this terminal..."
+        info "This does not change your default login shell. Exit zsh to return to the parent shell."
+        exec "$zsh_path" </dev/tty
+    else
+        warn "Cannot start zsh without an interactive terminal."
+    fi
+}
+
+zshrc_uses_managed_stack() {
+    local zshrc="$1"
+
+    [[ -f "$zshrc" ]] || return 1
+    grep -Fq 'oh-my-zsh.sh' "$zshrc" || return 1
+    grep -Fq 'powerlevel10k/powerlevel10k' "$zshrc" || return 1
+    grep -Fq 'zsh-autosuggestions' "$zshrc" || return 1
+    grep -Fq 'zsh-syntax-highlighting' "$zshrc" || return 1
+    grep -Fq 'zsh-z' "$zshrc" || return 1
+}
+
+zsh_config_requires_managed_stack() {
+    local zshrc="$HOME/.zshrc"
+
+    enabled DEPLOY_ZSH && return 0
+    [[ -e "$zshrc" || -L "$zshrc" ]] || return 1
+    is_dotfiles_managed_path "$zshrc" && return 0
+    [[ -f "$DOTFILES/zsh/.zshrc" && -f "$zshrc" ]] && cmp -s "$DOTFILES/zsh/.zshrc" "$zshrc" && return 0
+    zshrc_uses_managed_stack "$zshrc"
+}
+
+zsh_managed_config_ready() {
+    local custom_dir
+
+    if ! zsh_config_requires_managed_stack; then
+        return 0
+    fi
+
+    custom_dir="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
+
+    [[ -r "$HOME/.oh-my-zsh/oh-my-zsh.sh" ]] || return 1
+    [[ -r "$custom_dir/themes/powerlevel10k/powerlevel10k.zsh-theme" ]] || return 1
+    [[ -d "$custom_dir/plugins/zsh-autosuggestions" ]] || return 1
+    [[ -d "$custom_dir/plugins/zsh-syntax-highlighting" ]] || return 1
+    [[ -d "$custom_dir/plugins/zsh-z" ]] || return 1
+}
+
 install_tmux_plugins() {
     step "Installing tmux plugins..."
     TPM_DIR="$HOME/.tmux/plugins/tpm"
@@ -731,6 +802,8 @@ install_vim_plug() {
 }
 
 install_nvim_plugins() {
+    local nvim_log
+
     if ! enabled DEPLOY_NVIM; then
         info "nvim config was not selected; skipping nvim plugins"
         return
@@ -747,10 +820,13 @@ install_nvim_plugins() {
     fi
 
     step "Installing Neovim plugins..."
-    if run_with_timeout 600 nvim --headless --noplugin '+PlugInstall --sync' '+PlugUpdate --sync' '+PlugClean!' '+qall'; then
+    nvim_log="$(mktemp)"
+    if run_with_timeout 600 nvim --headless --noplugin '+PlugInstall --sync' '+PlugUpdate --sync' '+PlugClean!' '+qall' >"$nvim_log" 2>&1; then
+        rm -f "$nvim_log"
         info "Neovim plugins installed"
     else
-        warn "Neovim plugin installation failed; open nvim and run :PlugInstall to retry"
+        warn "Neovim plugin installation failed; log: $nvim_log"
+        warn "Open nvim and run :PlugInstall to retry"
     fi
 }
 
@@ -991,13 +1067,30 @@ DEPLOY_NVIM="${DOTFILES_DEPLOY_NVIM:-0}"
 COPY_TEMPLATES="${DOTFILES_COPY_TEMPLATES:-1}"
 CONFIGURE_GIT="${DOTFILES_CONFIGURE_GIT:-0}"
 CHANGE_SHELL="${DOTFILES_CHANGE_SHELL:-1}"
+START_ZSH="${DOTFILES_START_ZSH:-}"
 INSTALL_TMUX_PLUGINS="${DOTFILES_INSTALL_TMUX_PLUGINS:-1}"
 INSTALL_NVIM_PLUGINS="${DOTFILES_INSTALL_NVIM_PLUGINS:-}"
 CONFIGURE_TIMEZONE="${DOTFILES_CONFIGURE_TIMEZONE:-0}"
 SHELL_CHANGE_STATUS="not_requested"
+CHANGE_SHELL_ENV_OPTOUT=0
+START_ZSH_ENV_OPTOUT=0
+
+if [[ "${DOTFILES_CHANGE_SHELL:-}" == "0" ]]; then
+    CHANGE_SHELL_ENV_OPTOUT=1
+fi
+if [[ "${DOTFILES_START_ZSH:-}" == "0" ]]; then
+    START_ZSH_ENV_OPTOUT=1
+fi
 
 if [[ "$OS_TYPE" == "linux" && -z "${DOTFILES_DEPLOY_NVIM:-}" ]]; then
     DEPLOY_NVIM=1
+fi
+if [[ -z "$START_ZSH" ]]; then
+    if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
+        START_ZSH=1
+    else
+        START_ZSH=0
+    fi
 fi
 if [[ -z "$INSTALL_NVIM_PLUGINS" ]]; then
     INSTALL_NVIM_PLUGINS="$DEPLOY_NVIM"
@@ -1015,7 +1108,6 @@ if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
         DEPLOY_NVIM
         COPY_TEMPLATES
         CONFIGURE_GIT
-        CHANGE_SHELL
         INSTALL_TMUX_PLUGINS
         INSTALL_NVIM_PLUGINS
         CONFIGURE_TIMEZONE
@@ -1031,7 +1123,6 @@ if [[ "${DOTFILES_NO_PROMPT:-0}" != "1" ]] && tty_available; then
         "Deploy nvim config"
         "Create local template files"
         "Configure personal Git/GPG/GitHub auth"
-        "Set default shell to zsh"
         "Install tmux plugins"
         "Install nvim plugin manager and plugins"
         "Configure timezone"
@@ -1055,10 +1146,38 @@ enabled INSTALL_TMUX_STACK && install_tpm
 deploy_dotfiles
 enabled COPY_TEMPLATES && copy_templates
 enabled CONFIGURE_GIT && configure_git
-enabled CHANGE_SHELL && change_default_shell
+ZSH_MANAGED_CONFIG_STATUS="ready"
+if ! zsh_managed_config_ready; then
+    ZSH_MANAGED_CONFIG_STATUS="missing_zsh_stack"
+    warn "The zsh stack is incomplete; this zsh config is not ready to start."
+    warn "Rerun with the zsh stack enabled before making zsh your login shell."
+fi
+ZSH_COMMAND_STATUS="ready"
+if ! command -v zsh >/dev/null 2>&1; then
+    ZSH_COMMAND_STATUS="missing"
+fi
+if enabled CHANGE_SHELL; then
+    if [[ "$ZSH_MANAGED_CONFIG_STATUS" == "ready" ]]; then
+        change_default_shell
+    else
+        warn "Skipping default shell change because this zsh config is not ready."
+        SHELL_CHANGE_STATUS="missing_zsh_stack"
+    fi
+fi
 enabled INSTALL_TMUX_PLUGINS && install_tmux_plugins
 enabled INSTALL_NVIM_PLUGINS && install_nvim_plugins
 enabled CONFIGURE_TIMEZONE && configure_timezone
+
+START_ZSH_READY=0
+if enabled START_ZSH; then
+    if [[ "$ZSH_COMMAND_STATUS" == "missing" ]]; then
+        warn "zsh not found; cannot start a zsh session."
+    elif [[ "$ZSH_MANAGED_CONFIG_STATUS" == "ready" ]]; then
+        START_ZSH_READY=1
+    else
+        warn "Skipping zsh startup because this zsh config is not ready."
+    fi
+fi
 
 # ------------------------------------------------------------------
 # Final instructions
@@ -1074,15 +1193,26 @@ echo -e "  - Machine credentials: ${YELLOW}~/.zshrc.secrets${NC}"
 if enabled DEPLOY_NVIM; then
     echo -e "  - Neovim plugins: ${YELLOW}nvim +PlugInstall${NC}"
 fi
-if [[ "$SHELL_CHANGE_STATUS" == "changed" || "$SHELL_CHANGE_STATUS" == "already" ]]; then
-    echo -e "  - Open a new terminal, or run now: ${YELLOW}exec zsh${NC}"
-elif [[ "$SHELL_CHANGE_STATUS" == "failed" && -n "${ZSH_PATH:-}" ]]; then
+if [[ "$SHELL_CHANGE_STATUS" == "failed" && -n "${ZSH_PATH:-}" ]]; then
     echo -e "  - Default shell was not changed. Run: ${YELLOW}chsh -s $ZSH_PATH${NC}"
-    echo -e "  - To try zsh only in this session: ${YELLOW}exec zsh${NC}"
-elif [[ "$SHELL_CHANGE_STATUS" == "missing" ]]; then
-    echo -e "  - Install zsh, then rerun bootstrap or run: ${YELLOW}chsh -s /path/to/zsh${NC}"
-elif [[ -n "$(command -v zsh || true)" ]]; then
-    echo -e "  - To try zsh now: ${YELLOW}exec zsh${NC}"
-    echo -e "  - To make zsh default: ${YELLOW}chsh -s $(command -v zsh)${NC}"
+fi
+if [[ "$START_ZSH_READY" != "1" ]]; then
+    if [[ "$ZSH_COMMAND_STATUS" == "missing" ]]; then
+        echo -e "  - Install zsh, then rerun bootstrap or run: ${YELLOW}chsh -s /path/to/zsh${NC}"
+    fi
+    if [[ "$ZSH_MANAGED_CONFIG_STATUS" == "missing_zsh_stack" ]]; then
+        echo -e "  - Install oh-my-zsh, powerlevel10k, and zsh plugins by rerunning with the zsh stack enabled."
+    elif [[ "$SHELL_CHANGE_STATUS" == "changed" || "$SHELL_CHANGE_STATUS" == "already" ]]; then
+        echo -e "  - Open a new terminal, or run now: ${YELLOW}exec zsh${NC}"
+    elif [[ "$SHELL_CHANGE_STATUS" == "failed" && -n "${ZSH_PATH:-}" ]]; then
+        echo -e "  - To try zsh only in this session: ${YELLOW}exec zsh${NC}"
+    elif [[ -n "$(command -v zsh || true)" ]]; then
+        echo -e "  - To try zsh now: ${YELLOW}exec zsh${NC}"
+        echo -e "  - To make zsh default: ${YELLOW}chsh -s $(command -v zsh)${NC}"
+    fi
 fi
 echo "════════════════════════════════════════════════"
+
+if [[ "$START_ZSH_READY" == "1" ]]; then
+    start_zsh_session
+fi
