@@ -166,11 +166,11 @@ macos_disks() {
         NR > 1 && ($1 ~ "^/dev/" || $6 ~ "^/Volumes/") {
             target = $6
             if (target ~ "^/System/Volumes/(VM|Preboot|Update|xarts|iSCPreboot|Hardware)") next
+            if (target == "/System/Volumes/Data") next
             if (target ~ "^/private/var/") next
 
             label = target
             if (label == "/") label = "root"
-            sub("^/System/Volumes/Data$", "data", label)
             sub("^/Volumes/", "", label)
 
             if (seen[label]++) next
