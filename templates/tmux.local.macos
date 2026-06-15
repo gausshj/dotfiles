@@ -1,8 +1,7 @@
 # ─────────────────────────────────────────────
 # macOS tmux overrides for iTerm2 users
 # Copy to ~/.tmux.local.conf when iTerm2 already shows machine status.
+# Keep status-right managed by status_layout.sh so autosave hooks are preserved.
 # ─────────────────────────────────────────────
 
 set -g @tmux_status_preference "off"
-set -g status-right ""
-set -g status-right-length 0
