@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-status_command="#(TMUX_STATUS_DENSITY='#{@tmux_status_density}' TMUX_STATUS_BUDGET='#{@tmux_status_right_budget}' ~/.config/tmux/scripts/status_info.sh)"
 layout_script="$HOME/.config/tmux/scripts/status_layout.sh"
 
 usage() {
@@ -16,7 +15,6 @@ status_on() {
     local density
 
     tmux set-option -q @tmux_status_preference on
-    tmux set-option -q status-right "$status_command"
     bash "$layout_script" apply >/dev/null 2>&1 || true
     density="$(tmux show-option -qv @tmux_status_density 2>/dev/null || printf 'on')"
     tmux display-message "tmux machine status: on (${density})"
@@ -25,8 +23,6 @@ status_on() {
 status_off() {
     tmux set-option -q @tmux_status_preference off
     bash "$layout_script" apply >/dev/null 2>&1 || true
-    tmux set-option -q status-right ""
-    tmux set-option -q status-right-length 0
     tmux display-message 'tmux machine status: off'
 }
 

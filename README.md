@@ -260,9 +260,10 @@ right-side machine status with `~/.tmux.local.conf`:
 
 ```tmux
 set -g @tmux_status_preference "off"
-set -g status-right ""
-set -g status-right-length 0
 ```
+
+Leave `status-right` managed by `status_layout.sh` so tmux-continuum autosave
+hooks can be preserved.
 
 The shared tmux config loads `~/.tmux.local.conf` last, so local UI choices do
 not need to fork the repo config. A ready-to-copy macOS example lives at

@@ -5,14 +5,15 @@ status_command="#(TMUX_STATUS_DENSITY='#{@tmux_status_density}' TMUX_STATUS_BUDG
 
 usage() {
     cat <<'EOF'
-Usage: status_layout.sh [apply|apply-all|print] [-t target-session] [-c target-client]
+Usage: status_layout.sh [apply|apply-all|apply-all-deferred|print] [-t target-session] [-c target-client]
 
 Calculate tmux status/tab layout budgets.
 
 Commands:
-  apply      Set tmux options for the current session.
-  apply-all  Set tmux options for all sessions.
-  print      Print the calculated values for debugging.
+  apply               Set tmux options for the current session.
+  apply-all           Set tmux options for all sessions.
+  apply-all-deferred  Wait briefly for continuum's hook, then apply all sessions.
+  print               Print the calculated values for debugging.
 EOF
 }
 
@@ -88,6 +89,28 @@ option_value() {
     else
         printf '%s\n' "$fallback"
     fi
+}
+
+continuum_save_enabled() {
+    local interval
+
+    interval="$(option_value '@continuum-save-interval' 0)"
+    is_uint "$interval" && ((interval > 0))
+}
+
+continuum_save_command() {
+    local pattern
+    local value
+
+    continuum_save_enabled || return 0
+
+    pattern='(#\([^)]*tmux-continuum/scripts/continuum_save\.sh\))'
+    for value in "$(show_session_option status-right 2>/dev/null || true)" "$(tmux show-option -gqv status-right 2>/dev/null || true)"; do
+        if [[ "$value" =~ $pattern ]]; then
+            printf '%s\n' "${BASH_REMATCH[1]}"
+            return 0
+        fi
+    done
 }
 
 format_value() {
@@ -221,17 +244,27 @@ print_layout() {
 }
 
 apply_layout() {
+    local continuum_command
+    local status_right
+    local status_right_length
+
+    continuum_command="$(continuum_save_command)"
+    status_right="$continuum_command"
+    if [[ "$density" != "off" ]]; then
+        status_right+="$status_command"
+    fi
+
+    status_right_length="$right_budget"
+    if [[ -n "$continuum_command" && "$status_right_length" -eq 0 ]]; then
+        status_right_length=1
+    fi
+
     set_session_option @tmux_status_density "$density"
     set_session_option @tmux_status_right_budget "$right_budget"
     set_session_option @tmux_tab_title_width "$tab_title_width"
     set_session_option @tmux_tab_trim_width "$tab_trim_width"
-    set_session_option status-right-length "$right_budget"
-
-    if [[ "$density" == "off" ]]; then
-        set_session_option status-right ""
-    else
-        set_session_option status-right "$status_command"
-    fi
+    set_session_option status-right-length "$status_right_length"
+    set_session_option status-right "$status_right"
 }
 
 apply_one() {
@@ -286,11 +319,29 @@ apply_all() {
     target_client="$original_target_client"
 }
 
+wait_for_continuum_hook() {
+    local attempt
+
+    for attempt in {1..20}; do
+        [[ -n "$(continuum_save_command)" ]] && return 0
+        sleep 0.1
+    done
+
+    return 1
+}
+
+apply_all_deferred() {
+    if continuum_save_enabled; then
+        wait_for_continuum_hook || true
+    fi
+    apply_all
+}
+
 command="apply"
 
 while (($#)); do
     case "$1" in
-        apply | apply-all | print)
+        apply | apply-all | apply-all-deferred | print)
             command="$1"
             ;;
         -t | --target)
@@ -327,6 +378,9 @@ case "$command" in
         ;;
     apply-all)
         apply_all
+        ;;
+    apply-all-deferred)
+        apply_all_deferred
         ;;
     print)
         calculate_layout
